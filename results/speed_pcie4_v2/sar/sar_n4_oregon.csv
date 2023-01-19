@@ -1,0 +1,13 @@
+,dataset,model,epoch,rank,epoch time,accuracy
+0,reddit,graphsage,2000,0,0.80241043,tensor(0.9602)
+0,reddit,gcn,2000,0,0.65598609,tensor(0.9534)
+0,reddit,gat,200,0,1.72485998,tensor(0.9147)
+0,yelp,graphsage,2000,0,0.4502647,0.6051325935737185
+0,yelp,gcn,2000,0,0.42065432,0.4699707352638383
+0,yelp,gat,1000,0,2.09653126,0.4430
+0,ogbn-products,graphsage,500,0,0.64305482,tensor(0.7442)
+0,ogbn-products,gcn,500,0,0.56349701,tensor(0.7013)
+0,ogbn-products,gat,200,0,3.11857493,tensor(0.7640)
+0,amazon,graphsage,2000,0,1.61538,0.7884890181128037
+0,amazon,gcn,2000,0,1.37510246,0.53080
+0,amazon,gat,1000,0,3.51220009,0.42482944748481893

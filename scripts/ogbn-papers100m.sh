@@ -1,0 +1,12 @@
+python main.py \
+  --dataset ogbn-papers100m \
+  --dropout 0.3 \
+  --lr 0.003 \
+  --n-partitions 4 \
+  --n-epochs 500 \
+  --model graphsage \
+  --sampling-rate 1 \
+  --n-layers 3 \
+  --n-hidden 128 \
+  --log-every 10 \
+  --use-pp
