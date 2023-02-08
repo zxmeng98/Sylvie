@@ -3,17 +3,18 @@ python main.py \
   --dropout 0.5 \
   --lr 0.01 \
   --n-partitions 4 \
-  --n-epochs 400 \
-  --model gcn \
+  --n-epochs 500 \
+  --model graphsage \
   --sampling-rate 1 \
-  --n-layers 8 \
+  --n-layers 4 \
   --n-hidden 256 \
   --log-every 10 \
   --inductive \
   --datatype fp32 \
   --use-pp \
   --fix-seed \
-  --k 10
+  --k 10 \
+  --no-eval
 
 
 # for FIX in 10 20 100

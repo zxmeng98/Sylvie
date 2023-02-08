@@ -3,10 +3,10 @@ python main.py \
   --dropout 0.3 \
   --lr 0.01 \
   --n-partitions 4 \
-  --n-epochs 3000 \
+  --n-epochs 1000 \
   --model graphsage \
   --sampling-rate 1 \
-  --n-layers 4 \
-  --n-hidden 256 \
+  --n-layers 3 \
+  --n-hidden 128 \
   --log-every 10 \
   --use-pp

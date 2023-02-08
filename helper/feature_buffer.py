@@ -412,10 +412,10 @@ class Buffer(object):
                             commu_part = dequantize_and_unpack(self._b_recv[layer][i], self.nbits, 
                                                                         shape, self._gscale_recv[layer][i].float(), self._gmn_recv[layer][i].float())
                             grad[self._selected[i]] += commu_part
-                            # err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
+                            err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
                             # err_tmp = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)) / torch.norm(self._b_recv32[layer][i].float(), dim=1, p=2)
                             
-                            # self.grad_abs_err += err
+                            self.grad_abs_err += err
                             # self.grad_rel_err += err_tmp.mean()
                             
                             
@@ -465,8 +465,8 @@ class Buffer(object):
                     self.__gloo_all_to_all(grad_mn, self._gmn_cpu[layer], self._gmn_recv_cpu[layer], 
                                             self._gmn_recv[layer], (tag+200), self._corr_grad, self._b_avg[layer], forward=False)
                 # transfer one more fp32 gradient
-                # self.__gloo_all_to_all(grad, self._grad_cpu32[layer], self._b_recv_cpu32[layer], self._b_recv32[layer],
-                #                     tag, self._corr_grad, self._b_avg[layer], forward=False)
+                self.__gloo_all_to_all(grad, self._grad_cpu32[layer], self._b_recv_cpu32[layer], self._b_recv32[layer],
+                                    tag, self._corr_grad, self._b_avg[layer], forward=False)
                 
             self._b_cuda_event[layer].record(self._comm_stream)
             if self._corr_grad:

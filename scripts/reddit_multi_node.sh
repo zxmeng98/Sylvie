@@ -1,4 +1,4 @@
-for MODEL in graphsage
+for MODEL in appnp
 do
   for DATATYPE in int1
   do
@@ -35,7 +35,8 @@ do
     --n-class 41 \
     --n-feat 602 \
     --n-train 153431 \
-    --no-eval
+    --no-eval \
+    --k 10
     # --enable_pipeline 
 
   # echo -e "\033[1mclean python processes\033[0m"

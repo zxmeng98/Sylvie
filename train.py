@@ -344,11 +344,11 @@ def run(graph, node_dict, gpb, args):
     # '_U'是包含 boundary nodes
     # [args.n_hidden]*(args.k+1)
     ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    # ctx.buffer2.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
-    #                        use_pp=args.use_pp, backend=args.backend, dtype='int1', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+                           use_pp=args.use_pp, backend=args.backend, dtype='fp32', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+    ctx.buffer2.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
+                           use_pp=args.use_pp, backend=args.backend, dtype='int1', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     ctx.buffer.set_selected(boundary)
-    # ctx.buffer2.set_selected(boundary)
+    ctx.buffer2.set_selected(boundary)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -409,10 +409,10 @@ def run(graph, node_dict, gpb, args):
         t0 = time.time()
         model.train()
         if args.model == 'graphsage' or args.model == 'gcn' or args.model == 'gin':
-            logits = model(graph, feat, in_deg)
+            logits, abs_err = model(graph, feat, in_deg)
             # if rank == 0:
             #     print(epoch, abs_err)
-            # f_abs_err.append(abs_err.item()/3)
+            f_abs_err.append(abs_err.item()/3)
             # f_relative_err.append(rel_err.item()/3)
         elif args.model == 'gat':
             logits = model(graph, feat)
@@ -431,11 +431,19 @@ def run(graph, node_dict, gpb, args):
         loss.backward()
 
         # print(f'rank: {rank}, total: {ctx.pipe_buffer.commu_volume} MB')
-        # grad_abs_err.append(ctx.buffer2.grad_abs_err.item()/3)
+        grad_abs_err.append(ctx.buffer2.grad_abs_err.item()/3)
+        if rank == 0:
+            dict = {'grad abs err': ctx.buffer2.grad_abs_err.item()/3}
+            df = pd.DataFrame([dict])
+            err_file_csv = 'results/g_abs_err.csv'
+            if os.path.exists(err_file_csv):
+                df.to_csv(err_file_csv, mode='a', header=False, index=False)
+            else:
+                df.to_csv(err_file_csv, mode='a', index=False)
         # grad_relative_err.append(ctx.buffer2.grad_rel_err.item()/3)
-        # ctx.buffer2.grad_abs_err = 0
+        ctx.buffer2.grad_abs_err = 0
         ctx.buffer.next_epoch()
-        # ctx.buffer2.next_epoch()
+        ctx.buffer2.next_epoch()
 
         pre_reduce = time.time()
         ctx.reducer.synchronize()
@@ -502,9 +510,11 @@ def run(graph, node_dict, gpb, args):
                     df.to_csv(acc_file_csv, mode='a', header=False, index=False)
                 else:
                     df.to_csv(acc_file_csv, mode='a', index=False)
+       
 
     # print(f'rank {rank}, f abs: {np.mean(f_abs_err)}, f rel: {np.mean(f_relative_err)}, grad abs: {np.mean(grad_abs_err)}, grad rel: {np.mean(grad_relative_err)}')
     # print_memory("memory stats")
+    print(np.mean(grad_abs_err))
     
     if args.eval and rank == 0:
         if thread is not None:
@@ -543,6 +553,7 @@ def run(graph, node_dict, gpb, args):
             df.to_csv(file_csv, mode='a', header=False)
         else:
             df.to_csv(file_csv, mode='a')
+    
 
 
 def check_parser(args):
