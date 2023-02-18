@@ -4,7 +4,7 @@ python main.py \
   --lr 0.01 \
   --n-partitions 4 \
   --n-epochs 500 \
-  --model graphsage \
+  --model gcn \
   --sampling-rate 1 \
   --n-layers 4 \
   --n-hidden 256 \
@@ -13,8 +13,7 @@ python main.py \
   --datatype fp32 \
   --use-pp \
   --fix-seed \
-  --k 10 \
-  --no-eval
+  --save_testacc
 
 
 # for FIX in 10 20 100

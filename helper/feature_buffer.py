@@ -79,13 +79,14 @@ class Buffer(object):
 
 
     def init_buffer(self, num_in, num_all, f_send_shape, f_recv_shape, layer_size, use_pp=False, backend='gloo',
-                    dtype=torch.float, pipeline=False, corr_feat=False, corr_grad=False, corr_momentum=0, fixed_synchro=None):
+                    dtype=torch.float, pipeline=False, corr_feat=False, corr_grad=False, corr_momentum=0, fixed_synchro=None, re_init=False):
         rank, size = dist.get_rank(), dist.get_world_size()
         self._num_in = num_in
         self._n_layers = len(layer_size)
         self._layer_size = layer_size
         self._pipeline = pipeline
-        self._epoch = 0
+        if not re_init:
+            self._epoch = 0
         self._send_shape = f_send_shape
         self._recv_shape = f_recv_shape
         self.dtype = dtype
@@ -179,7 +180,8 @@ class Buffer(object):
         
         # Prepare list for feature buffer, events and streams
         self._backend = backend
-        self._f_buf = [None] * self._n_layers
+        if not re_init:
+            self._f_buf = [None] * self._n_layers
         self._f_avg, self._b_avg = [None] * self._n_layers, [None] * self._n_layers
         self._f_recv, self._b_recv, self._b_recv32 = [None] * self._n_layers, [None] * self._n_layers, [None] * self._n_layers
         self._scale_recv, self._mn_recv = [None] * self._n_layers, [None] * self._n_layers
@@ -191,7 +193,8 @@ class Buffer(object):
         for i in range(self._n_layers):
             if i == 0 and use_pp:
                 continue
-            self._f_buf[i] = torch.zeros([num_all, self._layer_size[i]], device='cuda')
+            if not re_init:
+                self._f_buf[i] = torch.zeros([num_all, self._layer_size[i]], device='cuda')
             tmp1, tmp2 = [], []
             tmp3, tmp4 = [], []
             tmp5, tmp6 = [], []
@@ -412,10 +415,10 @@ class Buffer(object):
                             commu_part = dequantize_and_unpack(self._b_recv[layer][i], self.nbits, 
                                                                         shape, self._gscale_recv[layer][i].float(), self._gmn_recv[layer][i].float())
                             grad[self._selected[i]] += commu_part
-                            err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
+                            # err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
                             # err_tmp = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)) / torch.norm(self._b_recv32[layer][i].float(), dim=1, p=2)
                             
-                            self.grad_abs_err += err
+                            # self.grad_abs_err += err
                             # self.grad_rel_err += err_tmp.mean()
                             
                             
@@ -465,8 +468,8 @@ class Buffer(object):
                     self.__gloo_all_to_all(grad_mn, self._gmn_cpu[layer], self._gmn_recv_cpu[layer], 
                                             self._gmn_recv[layer], (tag+200), self._corr_grad, self._b_avg[layer], forward=False)
                 # transfer one more fp32 gradient
-                self.__gloo_all_to_all(grad, self._grad_cpu32[layer], self._b_recv_cpu32[layer], self._b_recv32[layer],
-                                    tag, self._corr_grad, self._b_avg[layer], forward=False)
+                # self.__gloo_all_to_all(grad, self._grad_cpu32[layer], self._b_recv_cpu32[layer], self._b_recv32[layer],
+                #                     tag, self._corr_grad, self._b_avg[layer], forward=False)
                 
             self._b_cuda_event[layer].record(self._comm_stream)
             if self._corr_grad:

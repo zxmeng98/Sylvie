@@ -56,9 +56,14 @@ class GraphSAGE(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    _, commu_part32 = ctx.buffer.update(i, h)
-                    h, commu_part1 = ctx.buffer2.update(i, h)
-                    abs_err += torch.sqrt(((commu_part32-commu_part1)**2).sum(1)).mean()
+                    if ctx.buffer._epoch < 1500:
+                        h, commu_part32 = ctx.buffer.update(i, h)
+                    else: 
+                        h, commu_part1 = ctx.buffer2.update(i, h)
+                        
+                    # h, commu_part32 = ctx.buffer.update(i, h)
+                        
+                    # abs_err += torch.sqrt(((commu_part32-commu_part1)**2).sum(1)).mean()
                     # err_tmp = torch.sqrt(((commu_part32-commu_part1)**2).sum(1)) / torch.norm(commu_part32, dim=1, p=2)
                     # rel_err += err_tmp.mean()
                 
@@ -86,7 +91,7 @@ class GraphSAGE(GNNBase):
                 if self.use_norm:
                     h = self.norm[i](h)
                 h = self.activation(h)
-        return h, abs_err
+        return h
 
 
 class GAT(GNNBase):
@@ -162,7 +167,10 @@ class GCN(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    h = ctx.buffer.update(i, h)
+
+                    h, commu_part1 = ctx.buffer.update(i, h)
+                        
+                    # h, commu_part32 = ctx.buffer.update(i, h)
                 # if self.training and (i == 1 or not self.use_pp):
                 #     h = ctx.buffer.update(i, h)
                 # elif self.training and (i > 1 or not self.use_pp):
