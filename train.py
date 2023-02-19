@@ -404,9 +404,9 @@ def run(graph, node_dict, gpb, args):
     grad_abs_err = []
     grad_relative_err = []
     for epoch in range(args.n_epochs):
-        # if epoch == 259:
+        # if epoch == 299:
         #     ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
-        #                    use_pp=args.use_pp, backend=args.backend, dtype='int4', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro, re_init=True)
+        #                    use_pp=args.use_pp, backend=args.backend, dtype='fp32', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro, re_init=False)
         ctx.buffer.set_pipeline()
 
         t0 = time.time()
@@ -508,7 +508,7 @@ def run(graph, node_dict, gpb, args):
                     acc_file_csv = 'results/testacc_curve_products/%s_n%d_%s_%s_%d.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.fixed_synchro)
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
-                    acc_file_csv = 'results/%s_%s_fp32.csv' % (args.dataset, args.model)
+                    acc_file_csv = 'results/%s_%s_6layer_fp32.csv' % (args.dataset, args.model)
                 dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item()}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):

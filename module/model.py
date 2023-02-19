@@ -56,10 +56,7 @@ class GraphSAGE(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    if ctx.buffer._epoch < 1500:
-                        h, commu_part32 = ctx.buffer.update(i, h)
-                    else: 
-                        h, commu_part1 = ctx.buffer2.update(i, h)
+                    h, commu_part32 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
                         
