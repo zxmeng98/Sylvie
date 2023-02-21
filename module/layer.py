@@ -3,6 +3,7 @@ import torch
 import math
 
 import dgl.function as fn
+from torch.nn import functional as F, Parameter
 
 
 class GraphSAGELayer(nn.Module):

@@ -8,6 +8,7 @@ from helper import context as ctx
 from myconfig import *
 import torch.distributed as dist
 from dgl.nn.pytorch.conv import APPNPConv
+import time
 
 
 
@@ -56,6 +57,9 @@ class GraphSAGE(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
+                    
+                    if i == 4:
+                        ctx.buffer.reinit_buffer()
                     h, commu_part32 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -164,7 +168,10 @@ class GCN(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-
+                    if i == 4:
+                        if rank == 0:
+                            print(ctx.buffer._epoch, ctx.buffer.dtype)
+                        ctx.buffer.reinit_buffer()
                     h, commu_part1 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -248,157 +255,127 @@ class APPNP(nn.Module):
         return h
 
 
-class DeeperGCN(torch.nn.Module):
-    def __init__(self, args):
-        super(DeeperGCN, self).__init__()
+# DAGNN
+class DAGNNConv(nn.Module):
+    def __init__(self, in_dim, k):
+        super(DAGNNConv, self).__init__()
 
-        self.num_layers = args.num_layers
-        self.dropout = args.dropout
-        self.block = args.block
+        self.s = Parameter(torch.FloatTensor(in_dim, 1))
+        self.k = k
 
-        self.checkpoint_grad = False
+        self.reset_parameters()
 
-        in_channels = args.in_channels
-        hidden_channels = args.hidden_channels
-        num_tasks = args.num_tasks
-        conv = args.conv
-        aggr = args.gcn_aggr
+    def reset_parameters(self):
+        gain = nn.init.calculate_gain("sigmoid")
+        nn.init.xavier_uniform_(self.s, gain=gain)
 
-        t = args.t
-        self.learn_t = args.learn_t
-        p = args.p
-        self.learn_p = args.learn_p
-        self.msg_norm = args.msg_norm
-        learn_msg_scale = args.learn_msg_scale
+    def forward(self, graph, feats):
+        # TODO
+        with graph.local_scope():
+            if self.training:
+                results = [feats]
 
-        norm = args.norm
-        mlp_layers = args.mlp_layers
+                degs = graph.in_degrees().float()
+                norm = torch.pow(degs, -0.5)
+                norm = norm.to(feats.device).unsqueeze(1)
 
-        if aggr in ['softmax_sg', 'softmax', 'power'] and self.num_layers > 3:
-            self.checkpoint_grad = False
-            self.ckp_k = self.num_layers // 2
+                for _ in range(self.k):
+                    feats = feats * norm
+                    graph.ndata["h"] = feats
+                    graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
+                    feats = graph.ndata["h"]
+                    feats = feats * norm
+                    results.append(feats)
 
-        print('The number of layers {}'.format(self.num_layers),
-              'Aggregation method {}'.format(aggr),
-              'block: {}'.format(self.block))
-
-        if self.block == 'res+':
-            print('LN/BN->ReLU->GraphConv->Res')
-        elif self.block == 'res':
-            print('GraphConv->LN/BN->ReLU->Res')
-        elif self.block == 'dense':
-            raise NotImplementedError('To be implemented')
-        elif self.block == "plain":
-            print('GraphConv->LN/BN->ReLU')
-        else:
-            raise Exception('Unknown block Type')
-
-        self.gcns = torch.nn.ModuleList()
-        self.norms = torch.nn.ModuleList()
-
-        self.node_features_encoder = torch.nn.Linear(in_channels, hidden_channels)
-        self.node_pred_linear = torch.nn.Linear(hidden_channels, num_tasks)
-
-        for layer in range(self.num_layers):
-
-            if conv == 'gen':
-                gcn = GENConv(hidden_channels, hidden_channels,
-                              aggr=aggr,
-                              t=t, learn_t=self.learn_t,
-                              p=p, learn_p=self.learn_p,
-                              msg_norm=self.msg_norm, learn_msg_scale=learn_msg_scale,
-                              norm=norm, mlp_layers=mlp_layers)
-            else:
-                raise Exception('Unknown Conv Type')
-
-            self.gcns.append(gcn)
-            self.norms.append(norm_layer(norm, hidden_channels))
-
-    def forward(self,  x, edge_index):
-
-        h = self.node_features_encoder(x)
-
-        if self.block == 'res+':
-
-            h = self.gcns[0](h, edge_index)
-
-            if self.checkpoint_grad:
-
-                for layer in range(1, self.num_layers):
-                    h1 = self.norms[layer - 1](h)
-                    h2 = F.relu(h1)
-                    h2 = F.dropout(h2, p=self.dropout, training=self.training)
-
-                    if layer % self.ckp_k != 0:
-                        res = checkpoint(self.gcns[layer], h2, edge_index)
-                        h = res + h
-                    else:
-                        h = self.gcns[layer](h2, edge_index) + h
+                H = torch.stack(results, dim=1)
+                S = F.sigmoid(torch.matmul(H, self.s))
+                S = S.permute(0, 2, 1)
+                H = torch.matmul(S, H).squeeze()
 
             else:
-                for layer in range(1, self.num_layers):
-                    h1 = self.norms[layer - 1](h)
-                    h2 = F.relu(h1)
-                    h2 = F.dropout(h2, p=self.dropout, training=self.training)
-                    h = self.gcns[layer](h2, edge_index) + h
+                results = [feats]
 
-            h = F.relu(self.norms[self.num_layers - 1](h))
-            h = F.dropout(h, p=self.dropout, training=self.training)
+                degs = graph.in_degrees().float()
+                norm = torch.pow(degs, -0.5)
+                norm = norm.to(feats.device).unsqueeze(1)
 
-        elif self.block == 'res':
+                for _ in range(self.k):
+                    feats = feats * norm
+                    graph.ndata["h"] = feats
+                    graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
+                    feats = graph.ndata["h"]
+                    feats = feats * norm
+                    results.append(feats)
 
-            h = F.relu(self.norms[0](self.gcns[0](h, edge_index)))
-            h = F.dropout(h, p=self.dropout, training=self.training)
+                H = torch.stack(results, dim=1)
+                S = F.sigmoid(torch.matmul(H, self.s))
+                S = S.permute(0, 2, 1)
+                H = torch.matmul(S, H).squeeze()
 
-            for layer in range(1, self.num_layers):
-                h1 = self.gcns[layer](h, edge_index)
-                h2 = self.norms[layer](h1)
-                h = F.relu(h2) + h
-                h = F.dropout(h, p=self.dropout, training=self.training)
+            return H
 
-        elif self.block == 'dense':
-            raise NotImplementedError('To be implemented')
 
-        elif self.block == 'plain':
+class MLPLayer(nn.Module):
+    def __init__(self, in_dim, out_dim, bias=True, activation=None, dropout=0):
+        super(MLPLayer, self).__init__()
 
-            h = F.relu(self.norms[0](self.gcns[0](h, edge_index)))
-            h = F.dropout(h, p=self.dropout, training=self.training)
+        self.linear = nn.Linear(in_dim, out_dim, bias=bias)
+        self.activation = activation
+        self.dropout = nn.Dropout(dropout)
+        self.reset_parameters()
 
-            for layer in range(1, self.num_layers):
-                h1 = self.gcns[layer](h, edge_index)
-                h2 = self.norms[layer](h1)
-                h = F.relu(h2)
-                h = F.dropout(h, p=self.dropout, training=self.training)
-        else:
-            raise Exception('Unknown block Type')
+    def reset_parameters(self):
+        gain = 1.0
+        if self.activation is F.relu:
+            gain = nn.init.calculate_gain("relu")
+        nn.init.xavier_uniform_(self.linear.weight, gain=gain)
+        if self.linear.bias is not None:
+            nn.init.zeros_(self.linear.bias)
 
-        h = self.node_pred_linear(h)
+    def forward(self, feats):
+        feats = self.dropout(feats)
+        feats = self.linear(feats)
+        if self.activation:
+            feats = self.activation(feats)
 
-        return torch.log_softmax(h, dim=-1)
+        return feats
+    
 
-    def print_params(self, epoch=None, final=False):
+class DAGNN(nn.Module):
+    def __init__(
+        self,
+        k,
+        in_dim,
+        hid_dim,
+        out_dim,
+        bias=True,
+        activation=F.relu,
+        dropout=0,
+    ):
+        super(DAGNN, self).__init__()
+        self.mlp = nn.ModuleList()
+        self.mlp.append(
+            MLPLayer(
+                in_dim=in_dim,
+                out_dim=hid_dim,
+                bias=bias,
+                activation=activation,
+                dropout=dropout,
+            )
+        )
+        self.mlp.append(
+            MLPLayer(
+                in_dim=hid_dim,
+                out_dim=out_dim,
+                bias=bias,
+                activation=None,
+                dropout=dropout,
+            )
+        )
+        self.dagnn = DAGNNConv(in_dim=out_dim, k=k)
 
-        if self.learn_t:
-            ts = []
-            for gcn in self.gcns:
-                ts.append(gcn.t.item())
-            if final:
-                print('Final t {}'.format(ts))
-            else:
-                logging.info('Epoch {}, t {}'.format(epoch, ts))
-        if self.learn_p:
-            ps = []
-            for gcn in self.gcns:
-                ps.append(gcn.p.item())
-            if final:
-                print('Final p {}'.format(ps))
-            else:
-                logging.info('Epoch {}, p {}'.format(epoch, ps))
-        if self.msg_norm:
-            ss = []
-            for gcn in self.gcns:
-                ss.append(gcn.msg_norm.msg_scale.item())
-            if final:
-                print('Final s {}'.format(ss))
-            else:
-                logging.info('Epoch {}, s {}'.format(epoch, ss))
+    def forward(self, graph, feats):
+        for layer in self.mlp:
+            feats = layer(feats)
+        feats = self.dagnn(graph, feats)
+        return feats

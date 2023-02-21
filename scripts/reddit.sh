@@ -3,17 +3,17 @@ python main.py \
   --dropout 0.5 \
   --lr 0.01 \
   --n-partitions 4 \
-  --n-epochs 600 \
-  --model graphsage \
+  --n-epochs 400 \
+  --model appnp \
   --sampling-rate 1 \
-  --n-layers 4 \
+  --n-layers 6 \
   --n-hidden 256 \
   --log-every 10 \
   --inductive \
-  --datatype fp32 \
+  --datatype int1 \
   --use-pp \
   --fix-seed \
-  --save_testacc 
+  --save_testacc
 
 
 # for FIX in 10 20 100
