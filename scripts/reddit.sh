@@ -6,14 +6,13 @@ python main.py \
   --n-epochs 400 \
   --model appnp \
   --sampling-rate 1 \
-  --n-layers 6 \
+  --n-layers 8 \
   --n-hidden 256 \
   --log-every 10 \
   --inductive \
-  --datatype int1 \
+  --datatype fp32 \
   --use-pp \
-  --fix-seed \
-  --save_testacc
+  --fix-seed 
 
 
 # for FIX in 10 20 100

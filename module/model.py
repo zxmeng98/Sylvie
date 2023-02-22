@@ -58,8 +58,8 @@ class GraphSAGE(GNNBase):
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
                     
-                    if i == 4:
-                        ctx.buffer.reinit_buffer()
+                    if i == 3:
+                        ctx.buffer.change_layer_bit()
                     h, commu_part32 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -168,10 +168,10 @@ class GCN(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    if i == 4:
-                        if rank == 0:
-                            print(ctx.buffer._epoch, ctx.buffer.dtype)
-                        ctx.buffer.reinit_buffer()
+                    layer_pos = 4
+                    ctx.buffer.layer_pos = layer_pos
+                    if i == layer_pos:
+                        ctx.buffer.change_layer_bit()
                     h, commu_part1 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
