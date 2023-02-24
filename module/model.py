@@ -58,8 +58,7 @@ class GraphSAGE(GNNBase):
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
                     
-                    if i == 3:
-                        ctx.buffer.change_layer_bit()
+                    # ctx.buffer.layer_pos = 3
                     h, commu_part32 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -168,10 +167,7 @@ class GCN(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    layer_pos = 4
-                    ctx.buffer.layer_pos = layer_pos
-                    if i == layer_pos:
-                        ctx.buffer.change_layer_bit()
+                    ctx.buffer.layer_pos = 4
                     h, commu_part1 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -269,8 +265,8 @@ class DAGNNConv(nn.Module):
         gain = nn.init.calculate_gain("sigmoid")
         nn.init.xavier_uniform_(self.s, gain=gain)
 
-    def forward(self, graph, feats):
-        # TODO
+    def forward(self, graph, feats, in_deg):
+        rank = dist.get_rank()
         with graph.local_scope():
             if self.training:
                 results = [feats]
@@ -278,12 +274,21 @@ class DAGNNConv(nn.Module):
                 degs = graph.in_degrees().float()
                 norm = torch.pow(degs, -0.5)
                 norm = norm.to(feats.device).unsqueeze(1)
+                
+                # TODO
+                src_norm = torch.pow(
+                        graph.out_degrees().float().clamp(min=1), -0.5)
+                shp = src_norm.shape + (1,) * (feats.dim() - 1)
+                src_norm = torch.reshape(src_norm, shp).to(feats.device)
+                
+                # print(rank, in_deg.shape, degs.shape, src_norm.shape)
 
-                for _ in range(self.k):
-                    feats = feats * norm
-                    graph.ndata["h"] = feats
+                for i in range(1, self.k+1):
+                    feats, _ = ctx.buffer.update(i, feats)
+                    feats = feats * src_norm
+                    graph.nodes['_U'].data['h'] = feats
                     graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
-                    feats = graph.ndata["h"]
+                    feats = graph.nodes['_V'].data["h"]
                     feats = feats * norm
                     results.append(feats)
 
@@ -351,6 +356,7 @@ class DAGNN(nn.Module):
         bias=True,
         activation=F.relu,
         dropout=0,
+        
     ):
         super(DAGNN, self).__init__()
         self.mlp = nn.ModuleList()
@@ -374,8 +380,8 @@ class DAGNN(nn.Module):
         )
         self.dagnn = DAGNNConv(in_dim=out_dim, k=k)
 
-    def forward(self, graph, feats):
+    def forward(self, graph, feats, in_deg=None):
         for layer in self.mlp:
             feats = layer(feats)
-        feats = self.dagnn(graph, feats)
+        feats = self.dagnn(graph, feats, in_deg)
         return feats

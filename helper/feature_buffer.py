@@ -58,7 +58,7 @@ class Buffer(object):
         self._corr_feat, self._corr_grad = False, False
         self._pl, self._pr = [], []
         self.dtype = torch.float
-        self.dtype2 = 'int1'
+        self.dtype2 = 'fp32' # the datatype changed to 
         self.nbits = None
         self.nbits2 = None
         self._selected = []
@@ -67,7 +67,7 @@ class Buffer(object):
         self.grad_rel_err = 0
         self.change_layer_b = False
         self.change_epoch_b = False
-        self.layer_pos = 0
+        self.layer_pos = 20
 
 
     def __init_pl_pr(self):
@@ -84,7 +84,7 @@ class Buffer(object):
 
 
     def init_buffer(self, num_in, num_all, f_send_shape, f_recv_shape, layer_size, use_pp=False, backend='gloo',
-                    dtype=torch.float, pipeline=False, corr_feat=False, corr_grad=False, corr_momentum=0, fixed_synchro=None, re_init=False):
+                    dtype=torch.float, pipeline=False, corr_feat=False, corr_grad=False, corr_momentum=0, fixed_synchro=None):
         rank, size = dist.get_rank(), dist.get_world_size()
         self._num_in = num_in
         self._num_all = num_all
@@ -556,7 +556,7 @@ class Buffer(object):
                     self._f_cuda_event[layer].record(self._corr_stream)
             else:
                 raise NotImplementedError
-        else:       
+        else:     
             with quant_timer.timer(f'fquant_{layer}'):
                 quant_feat, feat_scale, feat_mn = self.__quant_data(feat, forward=True, data_type=self.dtype2, nbit=self.nbits2)
             if self._backend == 'gloo':
@@ -657,7 +657,6 @@ class Buffer(object):
 
 
     def __grad_transfer(self, epoch, layer, grad):
-        rank, size = dist.get_rank(), dist.get_world_size()
         tag = epoch * 2 * self._n_layers + layer + self._n_layers
         if not self.change_layer_b and not self.change_epoch_b:
             data_type = self.dtype

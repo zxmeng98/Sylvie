@@ -192,6 +192,8 @@ def precompute(graph, node_dict, boundary, recv_shape, args):
         return merge_feature(feat, recv_feat)
     elif args.model == 'appnp':
         return feat
+    elif args.model == 'dagnn':
+        return feat
     else:
         raise Exception
 
@@ -218,6 +220,14 @@ def create_model(layer_size, args):
         args.dropout,
         0.1,
         args.k,
+    )
+    elif args.model == 'dagnn':
+        return DAGNN(
+        k=args.k,
+        in_dim=layer_size[0],
+        hid_dim=args.n_hidden,
+        out_dim=args.n_class,
+        dropout=args.dropout, # 0.8 / 0.5
     )
 
 
@@ -343,8 +353,8 @@ def run(graph, node_dict, gpb, args):
     
     # '_U'是包含 boundary nodes
     # [args.n_hidden]*(args.k+1)
-    ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_hidden]*(args.k+1),
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro, re_init=False)
+    ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_class]*(args.k+1),
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     # ctx.buffer2.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
     #                        use_pp=args.use_pp, backend=args.backend, dtype='int8', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     ctx.buffer.set_selected(boundary)
@@ -404,6 +414,9 @@ def run(graph, node_dict, gpb, args):
     grad_abs_err = []
     grad_relative_err = []
     for epoch in range(args.n_epochs):
+        # if epoch == 100:
+        #     ctx.buffer.change_epoch_bit()
+            
         ctx.buffer.set_pipeline()
 
         t0 = time.time()
@@ -420,6 +433,8 @@ def run(graph, node_dict, gpb, args):
             logits = model(graph, feat)
         elif args.model == 'appnp':
             logits = model(graph, feat)
+        elif args.model == 'dagnn':
+            logits = model(graph, feat, in_deg)
         else:
             raise NotImplementedError
 
@@ -445,7 +460,6 @@ def run(graph, node_dict, gpb, args):
         # grad_relative_err.append(ctx.buffer2.grad_rel_err.item()/3)
         # ctx.buffer2.grad_abs_err = 0
         ctx.buffer.next_epoch()
-        # ctx.buffer.change_b = False
         # ctx.buffer2.next_epoch()
 
         pre_reduce = time.time()
@@ -507,7 +521,7 @@ def run(graph, node_dict, gpb, args):
                     acc_file_csv = 'results/testacc_curve_products/%s_n%d_%s_%s_%d.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.fixed_synchro)
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
-                    acc_file_csv = 'results/%s_%s_3l32_7l1.csv' % (args.dataset, args.model)
+                    acc_file_csv = 'results/%s_%s_100e1_300e32.csv' % (args.dataset, args.model)
                 dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item()}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):
