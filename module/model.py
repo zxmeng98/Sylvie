@@ -265,7 +265,7 @@ class DAGNNConv(nn.Module):
         gain = nn.init.calculate_gain("sigmoid")
         nn.init.xavier_uniform_(self.s, gain=gain)
 
-    def forward(self, graph, feats, in_deg):
+    def forward(self, graph, feats):
         rank = dist.get_rank()
         with graph.local_scope():
             if self.training:
@@ -276,44 +276,60 @@ class DAGNNConv(nn.Module):
                 norm = norm.to(feats.device).unsqueeze(1)
                 
                 # TODO
+                dst_norm = torch.pow(
+                    graph.in_degrees().float().clamp(min=1), -0.5)
+                shp = dst_norm.shape + (1,) * (feats.dim() - 1)
+                dst_norm = torch.reshape(dst_norm, shp).to(feats.device)
+
                 src_norm = torch.pow(
-                        graph.out_degrees().float().clamp(min=1), -0.5)
+                    graph.out_degrees().float().clamp(min=1), -0.5)
                 shp = src_norm.shape + (1,) * (feats.dim() - 1)
+                # print('in deg', graph.in_degrees().float().shape, 'out deg', graph.out_degrees().float().shape, src_norm.shape, shp)
+                # exit(0)
                 src_norm = torch.reshape(src_norm, shp).to(feats.device)
                 
-                # print(rank, in_deg.shape, degs.shape, src_norm.shape)
-
                 for i in range(1, self.k+1):
                     feats, _ = ctx.buffer.update(i, feats)
                     feats = feats * src_norm
+                    # if rank == 0:
+                    #     print(f'before: {feats.shape}')
+                    # if rank == 0:
+                    #     print(f'after: {feats.shape}')
+                    # exit(0)
                     graph.nodes['_U'].data['h'] = feats
                     graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
                     feats = graph.nodes['_V'].data["h"]
-                    feats = feats * norm
+                    feats = feats * dst_norm
                     results.append(feats)
 
                 H = torch.stack(results, dim=1)
-                S = F.sigmoid(torch.matmul(H, self.s))
+                S = torch.sigmoid(torch.matmul(H, self.s))
                 S = S.permute(0, 2, 1)
                 H = torch.matmul(S, H).squeeze()
 
             else:
                 results = [feats]
 
-                degs = graph.in_degrees().float()
-                norm = torch.pow(degs, -0.5)
-                norm = norm.to(feats.device).unsqueeze(1)
+                dst_norm = torch.pow(
+                    graph.in_degrees().float().clamp(min=1), -0.5)
+                shp = dst_norm.shape + (1,) * (feats.dim() - 1)
+                dst_norm = torch.reshape(dst_norm, shp).to(feats.device)
+
+                src_norm = torch.pow(
+                    graph.out_degrees().float().clamp(min=1), -0.5)
+                shp = src_norm.shape + (1,) * (feats.dim() - 1)
+                src_norm = torch.reshape(src_norm, shp).to(feats.device)
 
                 for _ in range(self.k):
-                    feats = feats * norm
+                    feats = feats * src_norm
                     graph.ndata["h"] = feats
                     graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
                     feats = graph.ndata["h"]
-                    feats = feats * norm
+                    feats = feats * dst_norm
                     results.append(feats)
 
                 H = torch.stack(results, dim=1)
-                S = F.sigmoid(torch.matmul(H, self.s))
+                S = torch.sigmoid(torch.matmul(H, self.s))
                 S = S.permute(0, 2, 1)
                 H = torch.matmul(S, H).squeeze()
 
@@ -380,8 +396,8 @@ class DAGNN(nn.Module):
         )
         self.dagnn = DAGNNConv(in_dim=out_dim, k=k)
 
-    def forward(self, graph, feats, in_deg=None):
+    def forward(self, graph, feats):
         for layer in self.mlp:
             feats = layer(feats)
-        feats = self.dagnn(graph, feats, in_deg)
+        feats = self.dagnn(graph, feats)
         return feats

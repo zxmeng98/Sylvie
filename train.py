@@ -218,10 +218,11 @@ def create_model(layer_size, args):
         F.relu,
         0,
         args.dropout,
-        0.1,
+        0.1, # can change
         args.k,
     )
     elif args.model == 'dagnn':
+        # the weight decay (0.005) of adam optimizer, very important
         return DAGNN(
         k=args.k,
         in_dim=layer_size[0],
@@ -355,7 +356,7 @@ def run(graph, node_dict, gpb, args):
     # [args.n_hidden]*(args.k+1)
     ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_class]*(args.k+1),
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    # ctx.buffer2.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
+    # ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
     #                        use_pp=args.use_pp, backend=args.backend, dtype='int8', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     ctx.buffer.set_selected(boundary)
     # ctx.buffer2.set_selected(boundary)
@@ -434,7 +435,7 @@ def run(graph, node_dict, gpb, args):
         elif args.model == 'appnp':
             logits = model(graph, feat)
         elif args.model == 'dagnn':
-            logits = model(graph, feat, in_deg)
+            logits = model(graph, feat)
         else:
             raise NotImplementedError
 
@@ -521,8 +522,8 @@ def run(graph, node_dict, gpb, args):
                     acc_file_csv = 'results/testacc_curve_products/%s_n%d_%s_%s_%d.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.fixed_synchro)
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
-                    acc_file_csv = 'results/%s_%s_100e1_300e32.csv' % (args.dataset, args.model)
-                dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item()}
+                    acc_file_csv = 'results/%s_%s_fp32.csv' % (args.dataset, args.model)
+                dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):
                     df.to_csv(acc_file_csv, mode='a', header=False, index=False)

@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument("--corr-momentum", "--corr_momentum", type=float, default=0.95)
     parser.add_argument('--save_testacc', action='store_true', help="whether to save acc to csv")
     parser.add_argument('--fixed-synchro', '--fixed_synchro', type=int, help="whether to synchronize at fixed epoch")
-    parser.add_argument('--k', type=int, default=10, help="number of propogation steps")
+    parser.add_argument('--k', type=int, default=12, help="number of propogation steps")
     parser.add_argument('--filename', type=str, help="the name of file to save")
     parser.set_defaults(eval=True)
     return parser.parse_args()

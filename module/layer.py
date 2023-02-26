@@ -42,7 +42,7 @@ class GraphSAGELayer(nn.Module):
                 if self.use_pp:
                     feat = self.linear(feat)
                 else:
-                    degs = in_deg.unsqueeze(1)
+                    degs = in_deg.unsqueeze(1) # inner nodes size
                     num_dst = graph.num_nodes('_V')
                     graph.nodes['_U'].data['h'] = feat
                     graph['_E'].update_all(fn.copy_src(src='h', out='m'),

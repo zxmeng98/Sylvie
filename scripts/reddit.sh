@@ -1,18 +1,21 @@
 python main.py \
   --dataset reddit \
-  --dropout 0.5 \
+  --dropout 0.8 \
   --lr 0.01 \
+  --weight-decay 0.005 \
   --n-partitions 4 \
-  --n-epochs 400 \
+  --n-epochs 1000 \
   --model dagnn \
   --sampling-rate 1 \
-  --n-layers 8 \
+  --n-layers 4 \
   --n-hidden 128 \
   --log-every 10 \
   --inductive \
   --datatype fp32 \
   --use-pp \
-  --fix-seed 
+  --fix-seed \
+  --k 12 \
+  --save_testacc
 
 
 # for FIX in 10 20 100
