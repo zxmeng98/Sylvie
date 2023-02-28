@@ -23,17 +23,18 @@
 
 python main.py \
   --dataset yelp \
-  --dropout 0.1 \
+  --dropout 0.8 \
   --lr 0.01 \
+  --weight_decay 0.005 \
   --n-partitions 4 \
-  --n-epochs 2000 \
-  --model appnp \
-  --sampling-rate 1 \
+  --n-epochs 600 \
+  --model dagnn \
   --n-layers 4 \
   --n-linear 2 \
   --n-hidden 64 \
   --log-every 10 \
   --inductive \
-  --datatype int1 \
+  --datatype fp32 \
   --use-pp \
-  --no-eval
+  --k 16 \
+  --save_testacc

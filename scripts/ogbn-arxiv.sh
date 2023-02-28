@@ -1,14 +1,15 @@
 python main.py \
   --dataset ogbn-arxiv \
-  --dropout 0.5 \
+  --dropout 0.8 \
   --lr 0.01 \
+  --weight_decay 0.005 \
   --n-partitions 4 \
-  --n-epochs 1000 \
+  --n-epochs 600 \
   --model dagnn \
-  --sampling-rate 1 \
   --n-layers 3 \
   --n-hidden 128 \
   --log-every 10 \
   --use-pp \
   --fix-seed \
-  --datatype fp32
+  --datatype fp32 \
+  --k 12

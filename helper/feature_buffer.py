@@ -58,7 +58,7 @@ class Buffer(object):
         self._corr_feat, self._corr_grad = False, False
         self._pl, self._pr = [], []
         self.dtype = torch.float
-        self.dtype2 = 'fp32' # the datatype changed to 
+        self.dtype2 = 'int1' # the datatype changed to 
         self.nbits = None
         self.nbits2 = None
         self._selected = []
@@ -67,7 +67,7 @@ class Buffer(object):
         self.grad_rel_err = 0
         self.change_layer_b = False
         self.change_epoch_b = False
-        self.layer_pos = 20
+        self.layer_pos = 50
 
 
     def __init_pl_pr(self):

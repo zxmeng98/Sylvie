@@ -1,7 +1,8 @@
 python main.py \
   --dataset ogbn-products \
-  --dropout 0.3 \
+  --dropout 0.5 \
   --lr 0.01 \
+  --weight_decay 0.05 \
   --n-partitions 4 \
   --n-epochs 500 \
   --model dagnn \
@@ -10,4 +11,8 @@ python main.py \
   --n-hidden 128 \
   --log-every 10 \
   --datatype fp32 \
-  --use-pp 
+  --use-pp \
+  --k 10 \
+  --fix-seed \
+  --save_testacc
+

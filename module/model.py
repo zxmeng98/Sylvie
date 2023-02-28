@@ -9,7 +9,8 @@ from myconfig import *
 import torch.distributed as dist
 from dgl.nn.pytorch.conv import APPNPConv
 import time
-
+from dgl.nn import GraphConv, JumpingKnowledge
+import dgl.function as fn
 
 
 class GNNBase(nn.Module):
@@ -167,7 +168,7 @@ class GCN(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    ctx.buffer.layer_pos = 4
+                    # ctx.buffer.layer_pos = 4
                     h, commu_part1 = ctx.buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
@@ -271,9 +272,9 @@ class DAGNNConv(nn.Module):
             if self.training:
                 results = [feats]
 
-                degs = graph.in_degrees().float()
-                norm = torch.pow(degs, -0.5)
-                norm = norm.to(feats.device).unsqueeze(1)
+                # degs = graph.in_degrees().float()
+                # norm = torch.pow(degs, -0.5)
+                # norm = norm.to(feats.device).unsqueeze(1)
                 
                 # TODO
                 dst_norm = torch.pow(
@@ -291,11 +292,6 @@ class DAGNNConv(nn.Module):
                 for i in range(1, self.k+1):
                     feats, _ = ctx.buffer.update(i, feats)
                     feats = feats * src_norm
-                    # if rank == 0:
-                    #     print(f'before: {feats.shape}')
-                    # if rank == 0:
-                    #     print(f'after: {feats.shape}')
-                    # exit(0)
                     graph.nodes['_U'].data['h'] = feats
                     graph.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
                     feats = graph.nodes['_V'].data["h"]
@@ -401,3 +397,69 @@ class DAGNN(nn.Module):
             feats = layer(feats)
         feats = self.dagnn(graph, feats)
         return feats
+    
+
+# JKNet
+class JKNet(nn.Module):
+    def __init__(
+        self, in_dim, hid_dim, out_dim, num_layers=1, mode="cat", dropout=0.0
+    ):
+        super(JKNet, self).__init__()
+
+        self.mode = mode
+        self.dropout = nn.Dropout(dropout)
+        self.layers = nn.ModuleList()
+        self.layers.append(GraphConv(in_dim, hid_dim, activation=F.relu))
+        for _ in range(num_layers):
+            self.layers.append(GraphConv(hid_dim, hid_dim, activation=F.relu))
+
+        if self.mode == "lstm":
+            self.jump = JumpingKnowledge(mode, hid_dim, num_layers)
+        else:
+            self.jump = JumpingKnowledge(mode)
+
+        if self.mode == "cat":
+            hid_dim = hid_dim * (num_layers + 1)
+
+        self.output = nn.Linear(hid_dim, out_dim)
+        self.reset_params()
+
+    def reset_params(self):
+        self.output.reset_parameters()
+        for layers in self.layers:
+            layers.reset_parameters()
+        self.jump.reset_parameters()
+
+    def forward(self, g, feats):
+        if self.training:
+            feat_lst = []
+            layer_idx = 0
+            for layer in self.layers:
+                if layer_idx > 0:
+                    feats, _ = ctx.buffer.update(layer_idx, feats)
+                    feat_lst.append(feats)
+                feats = self.dropout(layer(g, feats))
+                layer_idx += 1
+                
+            feats, _ = ctx.buffer.update(layer_idx, feats)
+            feat_lst.append(feats)
+            
+            # TODO
+            # print(len(feat_lst), feat_lst[0].shape)
+            # exit(0)
+            
+            g.nodes['_U'].data['h'] = self.jump(feat_lst)
+            g.update_all(fn.copy_u('h', 'm'), fn.sum('m', 'h'))
+            
+            return self.output(g.nodes['_V'].data['h'])
+    
+        else:
+            feat_lst = []
+            for layer in self.layers:
+                feats = self.dropout(layer(g, feats))
+                feat_lst.append(feats)
+
+            g.ndata["h"] = self.jump(feat_lst)
+            g.update_all(fn.copy_u("h", "m"), fn.sum("m", "h"))
+
+            return self.output(g.ndata["h"])

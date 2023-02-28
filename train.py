@@ -187,7 +187,7 @@ def precompute(graph, node_dict, boundary, recv_shape, args):
                                    etype='_E')
             mean_feat = graph.nodes['_V'].data['h'] / node_dict['in_degree'][0:in_size].unsqueeze(1)
         return torch.cat([feat, mean_feat[0:in_size]], dim=1)
-    elif args.model == 'gcn' or args.model == 'gin' or args.model == 'gat':
+    elif args.model == 'gcn' or args.model == 'gin' or args.model == 'gat' or args.model == 'jknet':
         # raise NotImplementedError
         return merge_feature(feat, recv_feat)
     elif args.model == 'appnp':
@@ -216,7 +216,7 @@ def create_model(layer_size, args):
         [args.n_hidden],
         args.n_class,
         F.relu,
-        0,
+        args.dropout,
         args.dropout,
         0.1, # can change
         args.k,
@@ -229,6 +229,14 @@ def create_model(layer_size, args):
         hid_dim=args.n_hidden,
         out_dim=args.n_class,
         dropout=args.dropout, # 0.8 / 0.5
+    )
+    elif args.model == 'jknet':
+        return JKNet(
+        in_dim=layer_size[0],
+        hid_dim=args.n_hidden,
+        out_dim=args.n_class,
+        num_layers=args.n_layers-1,
+        dropout=args.dropout,
     )
 
 
@@ -342,6 +350,9 @@ def run(graph, node_dict, gpb, args):
 
     layer_size = get_layer_size(args.n_feat, args.n_hidden, args.n_class, args.n_layers)
     # print(layer_size, layer_size[:args.n_layers - args.n_linear])
+    # if rank == 0:
+    #     print(layer_size, layer_size[:args.n_layers - args.n_linear])
+    # exit(0)
 
     pos = get_pos(node_dict, gpb)
     graph, one_hops = order_graph(part, graph, gpb, node_dict, pos)
@@ -354,10 +365,19 @@ def run(graph, node_dict, gpb, args):
     
     # '_U'是包含 boundary nodes
     # [args.n_hidden]*(args.k+1)
-    ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_class]*(args.k+1),
+    if args.model == 'appnp':
+        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_hidden]*(args.k+1),
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    # ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
-    #                        use_pp=args.use_pp, backend=args.backend, dtype='int8', pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+    elif args.model == 'dagnn':
+        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_class]*(args.k+1),
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+    elif args.model == 'jknet':
+        layer_size[-1] = args.n_hidden
+        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+    else:
+        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     ctx.buffer.set_selected(boundary)
     # ctx.buffer2.set_selected(boundary)
 
@@ -387,6 +407,7 @@ def run(graph, node_dict, gpb, args):
         loss_fcn = torch.nn.BCEWithLogitsLoss(reduction='sum')
     else:
         loss_fcn = torch.nn.CrossEntropyLoss(reduction='sum')
+    
     optimizer = torch.optim.Adam(model.parameters(),
                                  lr=args.lr,
                                  weight_decay=args.weight_decay)
@@ -415,8 +436,9 @@ def run(graph, node_dict, gpb, args):
     grad_abs_err = []
     grad_relative_err = []
     for epoch in range(args.n_epochs):
-        # if epoch == 100:
+        # if epoch == 300:
         #     ctx.buffer.change_epoch_bit()
+        # ctx.buffer.layer_pos = 7
             
         ctx.buffer.set_pipeline()
 
@@ -430,11 +452,7 @@ def run(graph, node_dict, gpb, args):
             #     print(epoch, abs_err)
             # f_abs_err.append(abs_err.item()/3)
             # f_relative_err.append(rel_err.item()/3)
-        elif args.model == 'gat':
-            logits = model(graph, feat)
-        elif args.model == 'appnp':
-            logits = model(graph, feat)
-        elif args.model == 'dagnn':
+        elif args.model == 'gat' or args.model == 'appnp' or args.model == 'dagnn' or args.model == 'jknet':
             logits = model(graph, feat)
         else:
             raise NotImplementedError
@@ -523,7 +541,8 @@ def run(graph, node_dict, gpb, args):
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
                     acc_file_csv = 'results/%s_%s_fp32.csv' % (args.dataset, args.model)
-                dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train}
+                    # acc_file_csv = 'results/test.csv'
+                dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train, 'epoch t': train_dur[-1]}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):
                     df.to_csv(acc_file_csv, mode='a', header=False, index=False)
@@ -545,10 +564,10 @@ def run(graph, node_dict, gpb, args):
                 best_acc = val_acc
                 best_model = model_copy
         # torch.save(best_model.state_dict(), 'model/' + args.graph_name + '_final.pth.tar')
-        print('model saved')
-        print("Validation accuracy {:.2%}".format(best_acc))
-        model_copy = copy.deepcopy(model)
-        _, acc = evaluate_induc('Test Result', model_copy, test_g, 'test')
+        # print('model saved')
+        print("Best validation accuracy {:.2%}".format(best_acc))
+        best_model.cpu()
+        _, acc = evaluate_induc('Test Result', best_model, test_g, 'test')
 
     if args.save_csv and rank == 0:
         # save epoch time to csv
