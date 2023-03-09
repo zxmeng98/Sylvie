@@ -35,6 +35,9 @@ class GraphSAGE(GNNBase):
 
     def __init__(self, layer_size, activation, use_pp, dropout=0.5, norm='layer', train_size=None, n_linear=0):
         super(GraphSAGE, self).__init__(layer_size, activation, use_pp, dropout, norm, n_linear)
+        self.abs_err = []
+        self.commu_part = None
+        self.commu_part32 = None
         for i in range(self.n_layers):
             if i < self.n_layers - self.n_linear:
                 self.layers.append(GraphSAGELayer(layer_size[i], layer_size[i + 1], use_pp=use_pp))
@@ -49,7 +52,6 @@ class GraphSAGE(GNNBase):
 
     def forward(self, g, feat, in_deg=None):
         rank = dist.get_rank()
-        abs_err = 0
         rel_err = 0
         h = feat
         for i in range(self.n_layers):
@@ -60,10 +62,79 @@ class GraphSAGE(GNNBase):
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
                     
                     # ctx.buffer.layer_pos = 3
-                    h, commu_part32 = ctx.buffer.update(i, h)
-                        
-                    # h, commu_part32 = ctx.buffer.update(i, h)
-                        
+                    h, commu_part, commu_part32 = ctx.dbuffer.update(i, h)
+                    
+                    # Test error-bit
+                    if i == self.n_layers - self.n_linear - 1:
+                        self.commu_part = commu_part
+                        self.commu_part32 = commu_part32
+                        # a = torch.sqrt(((commu_part32-commu_part)**2).sum(1))
+                        # self.abs_err.append(a.view(1, -1))
+                    # abs_err += torch.sqrt(((commu_part32-commu_part1)**2).sum(1)).mean()
+                    # err_tmp = torch.sqrt(((commu_part32-commu_part1)**2).sum(1)) / torch.norm(commu_part32, dim=1, p=2)
+                    # rel_err += err_tmp.mean()
+                
+                # If only communicate the last layer
+                # if self.training and (i == self.n_layers - self.n_linear - 1 or not self.use_pp):
+                #     h = ctx.buffer.update(i, h)
+                # elif self.training and (i < self.n_layers - self.n_linear - 1 or not self.use_pp) and i > 0:
+                #     h = ctx.buffer.fetchdata(i, h)               
+                
+                # If only communicate the second layer
+                # if self.training and (i == 1 or not self.use_pp):
+                #     h = ctx.buffer.update(i, h)
+                # elif self.training and (i > 1 or not self.use_pp):
+                #     h = ctx.buffer.fetchdata(i, h)             
+                    
+                h = self.dropout(h)
+                h = self.layers[i](g, h, in_deg)
+                # if rank == 0:
+                #     print(f'after 1st layer: {h.shape}')
+            else:
+                h = self.dropout(h)
+                h = self.layers[i](h)
+
+            if i < self.n_layers - 1:
+                if self.use_norm:
+                    h = self.norm[i](h)
+                h = self.activation(h)
+        return h
+
+
+class GraphSAGE2(GNNBase):
+
+    def __init__(self, layer_size, activation, use_pp, dropout=0.5, norm='layer', train_size=None, n_linear=0):
+        super(GraphSAGE2, self).__init__(layer_size, activation, use_pp, dropout, norm, n_linear)
+        self.commu_part = None
+        for i in range(self.n_layers):
+            if i < self.n_layers - self.n_linear:
+                self.layers.append(GraphSAGELayer(layer_size[i], layer_size[i + 1], use_pp=use_pp))
+            else:
+                self.layers.append(nn.Linear(layer_size[i], layer_size[i + 1]))
+            if i < self.n_layers - 1 and self.use_norm:
+                if norm == 'layer':
+                    self.norm.append(nn.LayerNorm(layer_size[i + 1], elementwise_affine=True))
+                elif norm == 'batch':
+                    self.norm.append(SyncBatchNorm(layer_size[i + 1], train_size))
+            use_pp = False
+
+    def forward(self, g, feat, in_deg=None):
+        rank = dist.get_rank()
+        rel_err = 0
+        h = feat
+        for i in range(self.n_layers):
+            if i < self.n_layers - self.n_linear:
+                if self.training and (i > 0 or not self.use_pp):
+                    # bits=1
+                    # output, scale, mn = ctx.quantize_and_pack(h, bits)
+                    # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
+                    
+                    # ctx.buffer.layer_pos = 3
+                    h, commu_part, commu_part32 = ctx.buffer2.update(i, h)
+                    
+                    # Test error-bit
+                    if i == self.n_layers - self.n_linear - 1:
+                        self.commu_part = commu_part
                     # abs_err += torch.sqrt(((commu_part32-commu_part1)**2).sum(1)).mean()
                     # err_tmp = torch.sqrt(((commu_part32-commu_part1)**2).sum(1)) / torch.norm(commu_part32, dim=1, p=2)
                     # rel_err += err_tmp.mean()
@@ -285,8 +356,8 @@ class DAGNNConv(nn.Module):
                 src_norm = torch.pow(
                     graph.out_degrees().float().clamp(min=1), -0.5)
                 shp = src_norm.shape + (1,) * (feats.dim() - 1)
-                # print('in deg', graph.in_degrees().float().shape, 'out deg', graph.out_degrees().float().shape, src_norm.shape, shp)
-                # exit(0)
+                print('in deg', graph.in_degrees().float().shape, 'out deg', graph.out_degrees().float().shape)
+                exit(0)
                 src_norm = torch.reshape(src_norm, shp).to(feats.device)
                 
                 for i in range(1, self.k+1):
@@ -443,10 +514,6 @@ class JKNet(nn.Module):
                 
             feats, _ = ctx.buffer.update(layer_idx, feats)
             feat_lst.append(feats)
-            
-            # TODO
-            # print(len(feat_lst), feat_lst[0].shape)
-            # exit(0)
             
             g.nodes['_U'].data['h'] = self.jump(feat_lst)
             g.update_all(fn.copy_u('h', 'm'), fn.sum('m', 'h'))

@@ -134,7 +134,9 @@ def order_graph(part, graph, gpb, node_dict, pos):
 
 
 def move_train_first(graph, node_dict, boundary):
+    rank = dist.get_rank()
     train_mask = node_dict['train_mask']
+    
     num_train = torch.count_nonzero(train_mask).item()
     num_tot = graph.num_nodes('_V')
 
@@ -346,24 +348,29 @@ def run(graph, node_dict, gpb, args):
           f'{part.num_nodes()} inner nodes, and {part.num_edges()} inner edges.')
 
     graph, part, node_dict = move_to_cuda(graph, part, node_dict)
-    boundary = get_boundary(node_dict, gpb)
-
     layer_size = get_layer_size(args.n_feat, args.n_hidden, args.n_class, args.n_layers)
-    # print(layer_size, layer_size[:args.n_layers - args.n_linear])
-    # if rank == 0:
-    #     print(layer_size, layer_size[:args.n_layers - args.n_linear])
-    # exit(0)
+    
+    # Get boundary info
+    boundary = get_boundary(node_dict, gpb) # list: node index that current partition sends to other partitions 
 
     pos = get_pos(node_dict, gpb)
     graph, one_hops = order_graph(part, graph, gpb, node_dict, pos)
-    in_deg = node_dict['in_degree']
-
+    in_deg = node_dict['in_degree'] # 是按 local node ID顺序来的 
+    # if rank != 0:
+    #     pd_deg = pd.DataFrame({'idx': boundary[0].cpu(), 'deg': in_deg[boundary[0]].cpu()})
+    #     # pd_deg = pd.DataFrame(columns=['idx', 'deg'], data=[boundary[0], in_deg[boundary[0]]])
+    #     pd_deg.to_csv(f'./results/deg_{rank}.csv', index=False)
     graph, node_dict, boundary = move_train_first(graph, node_dict, boundary)
+    boundary_divide = boundary_div_deg(boundary, node_dict)
 
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
-    # '_U'是包含 boundary nodes
+    #TODO: recv_shape, send_size rewrite
+    recv_shape_ada = get_recv_shape_ada()
+    
+    
+    # '_U'包含boundary nodes, '_V'只有inner nodes
     # [args.n_hidden]*(args.k+1)
     if args.model == 'appnp':
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_hidden]*(args.k+1),
@@ -376,10 +383,9 @@ def run(graph, node_dict, gpb, args):
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     else:
-        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    ctx.buffer.set_selected(boundary)
-    # ctx.buffer2.set_selected(boundary)
+    ctx.dbuffer.set_selected(boundary)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -440,18 +446,19 @@ def run(graph, node_dict, gpb, args):
         #     ctx.buffer.change_epoch_bit()
         # ctx.buffer.layer_pos = 7
             
-        ctx.buffer.set_pipeline()
+        ctx.dbuffer.set_pipeline()
 
         t0 = time.time()
         model.train()
         
         if args.model == 'graphsage' or args.model == 'gcn' or args.model == 'gin':
             logits = model(graph, feat, in_deg)
-            
             # if rank == 0:
-            #     print(epoch, abs_err)
-            # f_abs_err.append(abs_err.item()/3)
-            # f_relative_err.append(rel_err.item()/3)
+            #     print(model.abs_err[-1])
+            
+            # Test degree - error
+            # if rank == 0:
+               
         elif args.model == 'gat' or args.model == 'appnp' or args.model == 'dagnn' or args.model == 'jknet':
             logits = model(graph, feat)
         else:
@@ -463,13 +470,13 @@ def run(graph, node_dict, gpb, args):
             loss = loss_fcn(logits[train_mask], labels)
         del logits
         optimizer.zero_grad(set_to_none=True)
-
+        
         loss.backward()
 
         # print(f'rank: {rank}, total: {ctx.pipe_buffer.commu_volume} MB')
         # grad_abs_err.append(ctx.buffer2.grad_abs_err.item()/3)
         # if rank == 0:
-        #     dict = {'grad abs err': ctx.buffer2.grad_abs_err.item()/3}
+        #     dict = {'epoch': epoch, 'feat abs err': ctx.buffer2.grad_abs_err.item()/3}
         #     df = pd.DataFrame([dict])
         #     err_file_csv = 'results/g_abs_err.csv'
         #     if os.path.exists(err_file_csv):
@@ -478,8 +485,7 @@ def run(graph, node_dict, gpb, args):
         #         df.to_csv(err_file_csv, mode='a', index=False)
         # grad_relative_err.append(ctx.buffer2.grad_rel_err.item()/3)
         # ctx.buffer2.grad_abs_err = 0
-        ctx.buffer.next_epoch()
-        # ctx.buffer2.next_epoch()
+        ctx.dbuffer.next_epoch()
 
         pre_reduce = time.time()
         ctx.reducer.synchronize()
@@ -540,8 +546,8 @@ def run(graph, node_dict, gpb, args):
                     acc_file_csv = 'results/testacc_curve_products/%s_n%d_%s_%s_%d.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.fixed_synchro)
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
-                    acc_file_csv = 'results/%s_%s_fp32.csv' % (args.dataset, args.model)
-                    # acc_file_csv = 'results/test.csv'
+                    # acc_file_csv = 'results/%s_%s_1_p.csv' % (args.dataset, args.model)
+                    acc_file_csv = 'results/test-1.csv'
                 dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train, 'epoch t': train_dur[-1]}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):
@@ -553,6 +559,14 @@ def run(graph, node_dict, gpb, args):
     # print(f'rank {rank}, f abs: {np.mean(f_abs_err)}, f rel: {np.mean(f_relative_err)}, grad abs: {np.mean(grad_abs_err)}, grad rel: {np.mean(grad_relative_err)}')
     # print_memory("memory stats")
     # print(np.mean(grad_abs_err))
+    # if rank == 0:
+    #     tmp = torch.cat(f_abs_err)
+    #     abs_err = torch.mean(tmp, 0)
+        
+    #     df_abs_err = pd.DataFrame({'err': abs_err.cpu()})
+    #     df_abs_err.to_csv('./results/test.csv')
+    
+    
     
     if args.eval and rank == 0:
         if thread is not None:

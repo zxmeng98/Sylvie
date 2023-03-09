@@ -1,9 +1,13 @@
 from helper.feature_buffer import *
 from helper.reducer import *
-from helper.pipe_feature_buffer import *
+from helper.feature_buffer_cvolume import *
+from helper.feature_buffer_degree import *
 
 buffer = Buffer()
 buffer2 = Buffer()
-pipe_buffer = PipeBuffer()
+volume_buffer = CvolumeBuffer()
+dbuffer = DegreeBuffer()
+
 
 reducer = Reducer()
+reducer2 = Reducer()

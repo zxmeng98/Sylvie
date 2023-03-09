@@ -34,10 +34,10 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 
 
 
-class PipeBuffer(object):
+class CvolumeBuffer(object):
 
     def __init__(self):
-        super(PipeBuffer, self).__init__()
+        super(CvolumeBuffer, self).__init__()
         self._num_in = None
         self._n_layers = 0
         self._layer_size = []

@@ -1,20 +1,20 @@
 python main.py \
   --dataset reddit \
   --dropout 0.5 \
-  --lr 0.005 \
-  --weight_decay 0.0005 \
+  --lr 0.01 \
+  --weight_decay 0 \
   --n-partitions 4 \
-  --n-epochs 600 \
-  --model jknet \
-  --n-layers 5 \
+  --n-epochs 100 \
+  --model graphsage \
+  --n-layers 4 \
   --n-hidden 128 \
   --log-every 10 \
   --inductive \
-  --datatype fp32 \
+  --datatype int1 \
   --use-pp \
-  --fix-seed \
-  --save_testacc
+  --fix-seed 
   # --save_testacc
+  # --enable_pipeline 
 
 
 # for FIX in 10 20 100

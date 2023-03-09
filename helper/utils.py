@@ -9,6 +9,7 @@ import json
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from myconfig import *
+import pandas as pd
 
 
 
@@ -216,7 +217,7 @@ def get_boundary(node_dict, gpb):
     for i in range(1, size):
         left = (rank - i + size) % size
         right = (rank + i) % size
-        belong_right = (node_dict['part_id'] == right)
+        belong_right = (node_dict['part_id'] == right) # node_dict['part_id']一个tesor，size=这个partition所有node数量，标记每个node属于哪个partition
         num_right = belong_right.sum().view(-1)
         if dist.get_backend() == 'gloo':
             num_right = num_right.cpu()
@@ -226,7 +227,7 @@ def get_boundary(node_dict, gpb):
         req = dist.isend(num_right, dst=right)
         dist.recv(num_left, src=left)
         start = gpb.partid2nids(right)[0].item()
-        v = node_dict[dgl.NID][belong_right] - start
+        v = node_dict[dgl.NID][belong_right] - start # (在子图中通过dgl.NID或者dgl.EID来获取父图中节点和边的映射), - start = 获取相对于子图的local node ID
         if dist.get_backend() == 'gloo':
             v = v.cpu()
             u = torch.zeros(num_left, dtype=torch.long)
@@ -314,3 +315,27 @@ def timer(s):
     print('(rank %d) running time of %s: %.3f seconds' % (rank, s, time.time() - t))
 
 
+def boundary_div_deg(boundary, node_dict):
+    # 按照degree分组boundary nodes
+    rank, size = dist.get_rank(), dist.get_world_size()
+    device = 'cuda'
+    boundary_devide = [None] * size
+    for i in range(size):
+        if i == rank:
+            continue
+        else:
+            degree_bdry = node_dict['in_degree'][boundary[i]]
+            df_degree_bdry = pd.DataFrame({'idx': boundary[i].cpu(), 'deg':degree_bdry.cpu()})
+            df_degree_bdry.sort_values(by=['deg'], inplace=True)
+            
+            # TODO: Choose nodes (degree = 3) to be quantized to 1 bit
+            bdry1 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] == 3]['idx']), device=device)
+            bdry2 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] != 3]['idx']), device=device)
+            
+            boundary_devide[i] = [bdry1, bdry2]
+            
+    return boundary_devide
+
+
+def get_recv_shape_ada():
+    

@@ -33,19 +33,19 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 
 
 
-class Buffer(object):
+class DegreeBuffer(object):
 
     def __init__(self):
-        super(Buffer, self).__init__()
+        super(DegreeBuffer, self).__init__()
         self._num_in = None
         self._n_layers = 0
         self._layer_size = []
         self._pipeline = False
         self._epoch = 0
-        self._feat_cpu, self._grad_cpu, self._scale_cpu, self._mn_cpu, self._gscale_cpu, self._gmn_cpu = None, None, None, None, None, None
+        self._feat_cpu, self._grad_cpu, self._sm_cpu, self._gsm_cpu = None, None, None, None
         self._f_buf = []
-        self._f_recv, self._b_recv, self._scale_recv, self._mn_recv, self._gscale_recv, self._gmn_recv = None, None, None, None, None, None
-        self._f_recv_cpu, self._b_recv_cpu, self._scale_recv_cpu, self._mn_recv_cpu, self._gscale_recv_cpu, self._gmn_recv_cpu = None, None, None, None, None, None
+        self._f_recv, self._b_recv, self._sm_recv, self._gsm_recv = None, None, None, None
+        self._f_recv_cpu, self._b_recv_cpu, self._sm_recv_cpu, self._gsm_recv_cpu = None, None, None, None
         self._f_avg, self._b_avg = [], []
         self._send_shape = []
         self._recv_shape = []
@@ -100,23 +100,20 @@ class Buffer(object):
             # CPU part buffer
             self._feat_cpu, self._grad_cpu = [None] * self._n_layers, [None] * self._n_layers
             self._f_recv_cpu, self._b_recv_cpu, = [None] * self._n_layers, [None] * self._n_layers
-            self._scale_cpu, self._mn_cpu = [None] * self._n_layers, [None] * self._n_layers
-            self._scale_recv_cpu, self._mn_recv_cpu = [None] * self._n_layers, [None] * self._n_layers
-            self._gscale_cpu, self._gmn_cpu = [None] * self._n_layers, [None] * self._n_layers
-            self._gscale_recv_cpu, self._gmn_recv_cpu = [None] * self._n_layers, [None] * self._n_layers
+            self._sm_cpu = [None] * self._n_layers
+            self._sm_recv_cpu = [None] * self._n_layers
+            self._gsm_cpu = [None] * self._n_layers
+            self._gsm_recv_cpu = [None] * self._n_layers
             for i in range(self._n_layers):
                 if i == 0 and use_pp:
                     continue
                 tmp1, tmp2, tmp3, tmp4 = [], [], [], []
                 tmp5, tmp6, tmp7, tmp8 = [], [], [], []
-                tmp9, tmp10, tmp11, tmp12 = [], [], [], []
-                tmp13, tmp14 = [], []
+
                 for j in range(size):
                     if j == rank:
                         tmp1.append(None); tmp2.append(None); tmp3.append(None); tmp4.append(None)
                         tmp5.append(None); tmp6.append(None); tmp7.append(None); tmp8.append(None)
-                        tmp9.append(None); tmp10.append(None); tmp11.append(None); tmp12.append(None)
-                        tmp13.append(None); tmp14.append(None); 
                     
                     else:
                         s1 = torch.Size([f_send_shape[j], self._layer_size[i]])
@@ -144,44 +141,35 @@ class Buffer(object):
                             # feature buffer init
                             tmp1.append(torch.zeros(s1, pin_memory=True, dtype=torch.int8))
                             tmp3.append(torch.zeros(s2, pin_memory=True, dtype=torch.int8))
-                            # fcale buffer init
+                            # fscale & fmn buffer init (scale and mn have the same size, concatenate them together to commu)
                             s3 = scale_send.shape
                             s4 = scale_recv.shape
-                            tmp5.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                            tmp6.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                            # fmn buffer init
-                            tmp7.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                            tmp8.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
+                            tmp5.append(torch.cat((torch.zeros(s3, pin_memory=True, dtype=torch.half), torch.zeros(s3, pin_memory=True, dtype=torch.half))))
+                            tmp6.append(torch.cat((torch.zeros(s4, pin_memory=True, dtype=torch.half), torch.zeros(s4, pin_memory=True, dtype=torch.half))))
                             # gradient buffer init
                             tmp2.append(torch.zeros(s2, pin_memory=True, dtype=torch.int8))
                             tmp4.append(torch.zeros(s1, pin_memory=True, dtype=torch.int8))
-                            # gscale buffer init
-                            tmp9.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                            tmp10.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                            # gmn buffer init
-                            tmp11.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                            tmp12.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                            self._scale_cpu[i] = tmp5
-                            self._scale_recv_cpu[i] = tmp6
-                            self._mn_cpu[i] = tmp7
-                            self._mn_recv_cpu[i] = tmp8
-                            self._gscale_cpu[i] = tmp9
-                            self._gscale_recv_cpu[i] = tmp10
-                            self._gmn_cpu[i] = tmp11
-                            self._gmn_recv_cpu[i] = tmp12
+                            # gscale & gmn buffer init
+                            tmp7.append(torch.cat((torch.zeros(s4, pin_memory=True, dtype=torch.half), torch.zeros(s4, pin_memory=True, dtype=torch.half))))
+                            tmp8.append(torch.cat((torch.zeros(s3, pin_memory=True, dtype=torch.half), torch.zeros(s3, pin_memory=True, dtype=torch.half))))
                                            
                 self._feat_cpu[i] = tmp1
                 self._f_recv_cpu[i] = tmp3
                 self._grad_cpu[i] = tmp2
                 self._b_recv_cpu[i] = tmp4
+
+                self._sm_cpu[i] = tmp5
+                self._sm_recv_cpu[i] = tmp6
+                self._gsm_cpu[i] = tmp7
+                self._gsm_recv_cpu[i] = tmp8
                 
         # GPU part buffer, events, stream init
         self._backend = backend
         self._f_buf = [None] * self._n_layers
         self._f_avg, self._b_avg = [None] * self._n_layers, [None] * self._n_layers
         self._f_recv, self._b_recv = [None] * self._n_layers, [None] * self._n_layers
-        self._scale_recv, self._mn_recv = [None] * self._n_layers, [None] * self._n_layers
-        self._gscale_recv, self._gmn_recv = [None] * self._n_layers, [None] * self._n_layers
+        self._sm_recv= [None] * self._n_layers
+        self._gsm_recv = [None] * self._n_layers
         self._f_cpu_event, self._b_cpu_event = [None] * self._n_layers, [None] * self._n_layers
         self._f_cuda_event, self._b_cuda_event = [None] * self._n_layers, [None] * self._n_layers
         self._comm_stream, self._corr_stream = torch.cuda.Stream(), torch.cuda.Stream()
@@ -192,14 +180,10 @@ class Buffer(object):
             self._f_buf[i] = torch.zeros([num_all, self._layer_size[i]], device='cuda')
             tmp1, tmp2 = [], []
             tmp3, tmp4 = [], []
-            tmp5, tmp6 = [], []
-            tmp7 = []
             for j in range(size):
                 if j == rank:
                     tmp1.append(None); tmp2.append(None)
                     tmp3.append(None); tmp4.append(None)
-                    tmp5.append(None); tmp6.append(None)
-                    tmp7.append(None)
                 else:
                     s1 = torch.Size([f_recv_shape[j], self._layer_size[i]])
                     s2 = torch.Size([f_send_shape[j], self._layer_size[i]])
@@ -212,6 +196,11 @@ class Buffer(object):
                         tmp2.append(torch.zeros(s2, device='cuda', dtype=dtype))
                         tmp3.append(torch.zeros(s1, device='cuda'))
                         tmp4.append(torch.zeros(s2, device='cuda'))
+
+                        if corr_feat:
+                            self._f_avg[i] = tmp3
+                        if corr_grad and i > 0:
+                            self._b_avg[i] = tmp4
                     
                     else:
                         fake_send = torch.randn(f_send_shape[j], self._layer_size[i]).cuda()
@@ -219,37 +208,30 @@ class Buffer(object):
                         quant_feat_send, scale_send, mn_send = quantize_and_pack(fake_send, self.nbits)
                         quant_feat_recv, scale_recv, mn_recv = quantize_and_pack(fake_recv, self.nbits)
                         s1 = quant_feat_recv.shape
+                        s2 = quant_feat_send.shape
+
                         # feature gpu buffer init
                         tmp1.append(torch.zeros(s1, device='cuda', dtype=torch.int8))
-                        # scale gpu buffer init
-                        s2 = scale_recv.shape
-                        tmp3.append(torch.zeros(s2, device='cuda', dtype=torch.half))
-                        # mn gpu buffer init
-                        tmp4.append(torch.zeros(s2, device='cuda', dtype=torch.half))
+                        # fscale & fmn buffer init
+                        s3 = scale_recv.shape
+                        tmp3.append(torch.cat((torch.zeros(s3, device='cuda', dtype=torch.half), torch.zeros(s3, device='cuda', dtype=torch.half))))
+
                         # gradient gpu buffer init
-                        s3 = quant_feat_send.shape
-                        tmp2.append(torch.zeros(s3, device='cuda', dtype=torch.int8))
-                        # gscale gpu buffer init
+                        tmp2.append(torch.zeros(s2, device='cuda', dtype=torch.int8))
+                        # gscale & gmn buffer init
                         s4 = scale_send.shape
-                        tmp5.append(torch.zeros(s4, device='cuda', dtype=torch.half))
-                        # gmn gpu buffer init
-                        tmp6.append(torch.zeros(s4, device='cuda', dtype=torch.half))
-                        self._scale_recv[i] = tmp3
-                        self._mn_recv[i] = tmp4
-                        self._gscale_recv[i] = tmp5
-                        self._gmn_recv[i] = tmp6
+                        tmp4.append(torch.cat((torch.zeros(s4, device='cuda', dtype=torch.half), torch.zeros(s4, device='cuda', dtype=torch.half))))
+                        
             self._f_recv[i] = tmp1
             self._b_recv[i] = tmp2
-
-            if corr_feat:
-                self._f_avg[i] = tmp3
-            if corr_grad and i > 0:
-                self._b_avg[i] = tmp4
+            self._sm_recv[i] = tmp3
+            self._gsm_recv[i] = tmp4
 
             self._f_cpu_event[i] = Event()
             self._b_cpu_event[i] = Event()
             self._f_cuda_event[i] = torch.cuda.Event()
             self._b_cuda_event[i] = torch.cuda.Event()
+
         self._corr_momentum = corr_momentum
         self._corr_feat, self._corr_grad = corr_feat, corr_grad
         self._pool = ThreadPool(processes=2*self._n_layers)
@@ -258,27 +240,37 @@ class Buffer(object):
         # -------------------------------- Add another datatype buffer -------------------------------- 
         self._feat_cpu_e1, self._grad_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
         self._f_recv_cpu_e1, self._b_recv_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._scale_cpu_e1, self._mn_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._scale_recv_cpu_e1, self._mn_recv_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._gscale_cpu_e1, self._gmn_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._gscale_recv_cpu_e1, self._gmn_recv_cpu_e1 = [None] * self._n_layers, [None] * self._n_layers
+        self._sm_cpu_e1 = [None] * self._n_layers
+        self._sm_recv_cpu_e1 = [None] * self._n_layers
+        self._gsm_cpu_e1 = [None] * self._n_layers
+        self._gsm_recv_cpu_e1 = [None] * self._n_layers
         for i in range(self._n_layers):
             if i == 0 and use_pp:
                 continue
             tmp1, tmp2, tmp3, tmp4 = [], [], [], []
             tmp5, tmp6, tmp7, tmp8 = [], [], [], []
-            tmp9, tmp10, tmp11, tmp12 = [], [], [], []
-            tmp13, tmp14 = [], []
+
             for j in range(size):
                 if j == rank:
                     tmp1.append(None); tmp2.append(None); tmp3.append(None); tmp4.append(None)
                     tmp5.append(None); tmp6.append(None); tmp7.append(None); tmp8.append(None)
-                    tmp9.append(None); tmp10.append(None); tmp11.append(None); tmp12.append(None)
-                    tmp13.append(None); tmp14.append(None); 
+                
                 else:
                     s1 = torch.Size([f_send_shape[j], self._layer_size[i]])
                     s2 = torch.Size([f_recv_shape[j], self._layer_size[i]])
-                    if self.dtype2 == 'int4' or self.dtype2 == 'int2' or self.dtype2 == 'int1':
+                    if self.dtype2 == 'fp32' or self.dtype2 == 'fp16':
+                        if self.dtype2 == 'fp32':
+                            dtype = torch.float
+                        elif self.dtype2 == 'fp16':
+                            dtype = torch.half
+                        # elif self.dtype2 == 'int8':
+                        #     dtype = torch.int8
+                        tmp1.append(torch.zeros(s1, pin_memory=True, dtype=dtype))
+                        tmp2.append(torch.zeros(s2, pin_memory=True, dtype=dtype))
+                        tmp3.append(torch.zeros(s2, pin_memory=True, dtype=dtype))
+                        tmp4.append(torch.zeros(s1, pin_memory=True, dtype=dtype))       
+                    
+                    else:
                         self.nbits2 = int(re.findall(r"\d+", self.dtype2)[0])
                         fake_send = torch.randn(f_send_shape[j], self._layer_size[i]).cuda()
                         fake_recv = torch.randn(f_recv_shape[j], self._layer_size[i]).cuda()
@@ -289,106 +281,77 @@ class Buffer(object):
                         # feature buffer init
                         tmp1.append(torch.zeros(s1, pin_memory=True, dtype=torch.int8))
                         tmp3.append(torch.zeros(s2, pin_memory=True, dtype=torch.int8))
-                        # fcale buffer init
+                        # fscale & fmn buffer init (scale and mn have the same size, concatenate them together to commu)
                         s3 = scale_send.shape
                         s4 = scale_recv.shape
-                        tmp5.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                        tmp6.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                        # fmn buffer init
-                        tmp7.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                        tmp8.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
+                        tmp5.append(torch.cat((torch.zeros(s3, pin_memory=True, dtype=torch.half), torch.zeros(s3, pin_memory=True, dtype=torch.half))))
+                        tmp6.append(torch.cat((torch.zeros(s4, pin_memory=True, dtype=torch.half), torch.zeros(s4, pin_memory=True, dtype=torch.half))))
                         # gradient buffer init
                         tmp2.append(torch.zeros(s2, pin_memory=True, dtype=torch.int8))
                         tmp4.append(torch.zeros(s1, pin_memory=True, dtype=torch.int8))
-                        # gscale buffer init
-                        tmp9.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                        tmp10.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                        # gmn buffer init
-                        tmp11.append(torch.zeros(s4, pin_memory=True, dtype=torch.half))
-                        tmp12.append(torch.zeros(s3, pin_memory=True, dtype=torch.half))
-                        self._scale_cpu_e1[i] = tmp5
-                        self._scale_recv_cpu_e1[i] = tmp6
-                        self._mn_cpu_e1[i] = tmp7
-                        self._mn_recv_cpu_e1[i] = tmp8
-                        self._gscale_cpu_e1[i] = tmp9
-                        self._gscale_recv_cpu_e1[i] = tmp10
-                        self._gmn_cpu_e1[i] = tmp11
-                        self._gmn_recv_cpu_e1[i] = tmp12
-                    else:
-                        if self.dtype2 == 'fp32':
-                            dtype = torch.float
-                        elif self.dtype2 == 'fp16':
-                            dtype = torch.half
-                        elif self.dtype2 == 'int8':
-                            dtype = torch.int8
-                        tmp1.append(torch.zeros(s1, pin_memory=True, dtype=dtype))
-                        tmp2.append(torch.zeros(s2, pin_memory=True, dtype=dtype))
-                        tmp3.append(torch.zeros(s2, pin_memory=True, dtype=dtype))
-                        tmp4.append(torch.zeros(s1, pin_memory=True, dtype=dtype))
-                        
+                        # gscale & gmn buffer init
+                        tmp7.append(torch.cat((torch.zeros(s4, pin_memory=True, dtype=torch.half), torch.zeros(s4, pin_memory=True, dtype=torch.half))))
+                        tmp8.append(torch.cat((torch.zeros(s3, pin_memory=True, dtype=torch.half), torch.zeros(s3, pin_memory=True, dtype=torch.half))))
+                                           
             self._feat_cpu_e1[i] = tmp1
             self._f_recv_cpu_e1[i] = tmp3
             self._grad_cpu_e1[i] = tmp2
             self._b_recv_cpu_e1[i] = tmp4
+
+            self._sm_cpu_e1[i] = tmp5
+            self._sm_recv_cpu_e1[i] = tmp6
+            self._gsm_cpu_e1[i] = tmp7
+            self._gsm_recv_cpu_e1[i] = tmp8
                 
         self._f_recv_e1, self._b_recv_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._scale_recv_e1, self._mn_recv_e1 = [None] * self._n_layers, [None] * self._n_layers
-        self._gscale_recv_e1, self._gmn_recv_e1 = [None] * self._n_layers, [None] * self._n_layers
+        self._sm_recv_e1 = [None] * self._n_layers
+        self._gsm_recv_e1 = [None] * self._n_layers
 
         for i in range(self._n_layers):
             if i == 0 and use_pp:
                 continue
+            self._f_buf[i] = torch.zeros([num_all, self._layer_size[i]], device='cuda')
             tmp1, tmp2 = [], []
             tmp3, tmp4 = [], []
-            tmp5, tmp6 = [], []
-            tmp7 = []
             for j in range(size):
                 if j == rank:
                     tmp1.append(None); tmp2.append(None)
                     tmp3.append(None); tmp4.append(None)
-                    tmp5.append(None); tmp6.append(None)
-                    tmp7.append(None)
                 else:
                     s1 = torch.Size([f_recv_shape[j], self._layer_size[i]])
                     s2 = torch.Size([f_send_shape[j], self._layer_size[i]])
-                    if self.dtype2 == 'int4' or self.dtype2 == 'int2' or self.dtype2 == 'int1':
+                    if self.dtype2 == 'fp32' or self.dtype2 == 'fp16':
+                        if self.dtype2 == 'fp32':
+                            dtype = torch.float
+                        elif self.dtype2 == 'fp16':
+                            dtype = torch.half 
+                        tmp1.append(torch.zeros(s1, device='cuda', dtype=dtype))
+                        tmp2.append(torch.zeros(s2, device='cuda', dtype=dtype))
+                    
+                    else:
                         fake_send = torch.randn(f_send_shape[j], self._layer_size[i]).cuda()
                         fake_recv = torch.randn(f_recv_shape[j], self._layer_size[i]).cuda()
                         quant_feat_send, scale_send, mn_send = quantize_and_pack(fake_send, self.nbits2)
                         quant_feat_recv, scale_recv, mn_recv = quantize_and_pack(fake_recv, self.nbits2)
                         s1 = quant_feat_recv.shape
+                        s2 = quant_feat_send.shape
+
                         # feature gpu buffer init
                         tmp1.append(torch.zeros(s1, device='cuda', dtype=torch.int8))
-                        # scale gpu buffer init
-                        s2 = scale_recv.shape
-                        tmp3.append(torch.zeros(s2, device='cuda', dtype=torch.half))
-                        # mn gpu buffer init
-                        tmp4.append(torch.zeros(s2, device='cuda', dtype=torch.half))
+                        # fscale & fmn buffer init
+                        s3 = scale_recv.shape
+                        tmp3.append(torch.cat((torch.zeros(s3, device='cuda', dtype=torch.half), torch.zeros(s3, device='cuda', dtype=torch.half))))
+
                         # gradient gpu buffer init
-                        s3 = quant_feat_send.shape
-                        tmp2.append(torch.zeros(s3, device='cuda', dtype=torch.int8))
-                        # gscale gpu buffer init
+                        tmp2.append(torch.zeros(s2, device='cuda', dtype=torch.int8))
+                        # gscale & gmn buffer init
                         s4 = scale_send.shape
-                        tmp5.append(torch.zeros(s4, device='cuda', dtype=torch.half))
-                        # gmn gpu buffer init
-                        tmp6.append(torch.zeros(s4, device='cuda', dtype=torch.half))
-                        self._scale_recv_e1[i] = tmp3
-                        self._mn_recv_e1[i] = tmp4
-                        self._gscale_recv_e1[i] = tmp5
-                        self._gmn_recv_e1[i] = tmp6
-                    else:
-                        if self.dtype2 == 'fp32':
-                            dtype = torch.float
-                        elif self.dtype2 == 'fp16':
-                            dtype = torch.half
-                        elif self.dtype2 == 'int8':
-                            dtype = torch.int8
-                        tmp1.append(torch.zeros(s1, device='cuda', dtype=dtype))
-                        tmp2.append(torch.zeros(s2, device='cuda', dtype=dtype))
-                        tmp3.append(torch.zeros(s1, device='cuda'))
-                        tmp4.append(torch.zeros(s2, device='cuda'))
+                        tmp4.append(torch.cat((torch.zeros(s4, device='cuda', dtype=torch.half), torch.zeros(s4, device='cuda', dtype=torch.half))))
+                        
             self._f_recv_e1[i] = tmp1
             self._b_recv_e1[i] = tmp2
+            self._sm_recv_e1[i] = tmp3
+            self._gsm_recv_e1[i] = tmp4
             
 
     def reinit_buffer(self):
@@ -435,8 +398,9 @@ class Buffer(object):
                             else:
                                 # tmp.append(dequantize_and_unpack(self._f_recv[layer][i], self.nbits, shape, 
                                 #             self._scale_recv[layer][i].float(), self._mn_recv[layer][i].float()))
+                                sm = torch.chunk(self._sm_recv[layer][i], 2, dim=0)
                                 subpart = dequantize_and_unpack(self._f_recv[layer][i], self.nbits, shape, 
-                                            self._scale_recv[layer][i].float(), self._mn_recv[layer][i].float())
+                                            sm[0].float(), sm[1].float())
                                 tmp.append(subpart)
                                 commu_part.append(subpart)
                                  
@@ -450,7 +414,11 @@ class Buffer(object):
             with quant_timer.timer(f'fdequant_{layer}'):
                 for i in range(size):
                     if i != rank:
-                        if self.dtype2 == 'int4' or self.dtype2 == 'int2' or self.dtype2 == 'int1':
+                        if self.dtype2 == 'fp32' or self.dtype2 == 'fp16':
+                            tmp.append(self._f_recv_e1[layer][i].float())
+                            commu_part.append(self._f_recv_e1[layer][i].float())
+
+                        else:
                             shape = torch.Size([self._recv_shape[i], self._layer_size[layer]])
                             if self._pipeline and self._epoch == 0:
                                 tmp.append(torch.zeros(shape, device='cuda'))
@@ -458,18 +426,16 @@ class Buffer(object):
                             else:
                                 # tmp.append(dequantize_and_unpack(self._f_recv[layer][i], self.nbits, shape, 
                                 #             self._scale_recv[layer][i].float(), self._mn_recv[layer][i].float()))
+                                sm = torch.chunk(self._sm_recv_e1[layer][i], 2, dim=0)
                                 subpart = dequantize_and_unpack(self._f_recv_e1[layer][i], self.nbits2, shape, 
-                                            self._scale_recv_e1[layer][i].float(), self._mn_recv_e1[layer][i].float())
+                                            sm[0].float(), sm[1].float())
                                 tmp.append(subpart)
                                 commu_part.append(subpart)
                                 
-                        else: 
-                            if self.dtype2 == 'int8':
-                                tmp.append(self._f_recv_e1[layer][i].float() * 0.01)
-                                commu_part.append(self._f_recv_e1[layer][i].float() * 0.01)
-                            else:
-                                tmp.append(self._f_recv_e1[layer][i].float())
-                                commu_part.append(self._f_recv_e1[layer][i].float())
+                        # elif self.dtype2 == 'int8':
+                        #     tmp.append(self._f_recv_e1[layer][i].float() * 0.01)
+                        #     commu_part.append(self._f_recv_e1[layer][i].float() * 0.01)
+                                
     
         return torch.cat(tmp), torch.cat(commu_part), torch.cat(commu_part32)
 
@@ -543,7 +509,7 @@ class Buffer(object):
         tag = epoch * 2 * self._n_layers + layer
         if not self.change_layer_b and not self.change_epoch_b:
             with quant_timer.timer(f'fquant_{layer}'):
-                quant_feat, feat_scale, feat_mn = self.__quant_data(feat, forward=True, data_type=self.dtype, nbit=self.nbits)
+                quant_feat, feat_sm = self.__quant_data(feat, forward=True, data_type=self.dtype, nbit=self.nbits)
             if self._backend == 'gloo':
                 self._comm_stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self._comm_stream):
@@ -551,16 +517,14 @@ class Buffer(object):
                     self.__gloo_all_to_all(self.dtype2, feat, self._feat_cpu_e1[layer], self._f_recv_cpu_e1[layer], self._f_recv_e1[layer],
                                                 tag, self._corr_feat, self._f_avg[layer], forward=True)
                      
-                    if feat_scale is None and feat_mn is None:
+                    if feat_sm is None:
                         self.__gloo_all_to_all(self.dtype, quant_feat, self._feat_cpu[layer], self._f_recv_cpu[layer], self._f_recv[layer],
                                                 tag, self._corr_feat, self._f_avg[layer], forward=True)
                     else:
                         self.__gloo_all_to_all(self.dtype, quant_feat, self._feat_cpu[layer], self._f_recv_cpu[layer], 
                                                 self._f_recv[layer], tag, self._corr_feat, self._f_avg[layer], forward=True)
-                        self.__gloo_all_to_all(self.dtype, feat_scale, self._scale_cpu[layer], self._scale_recv_cpu[layer], 
-                                                self._scale_recv[layer], (tag+100), self._corr_feat, self._f_avg[layer], forward=True)
-                        self.__gloo_all_to_all(self.dtype, feat_mn, self._mn_cpu[layer], self._mn_recv_cpu[layer], 
-                                                self._mn_recv[layer], (tag+200), self._corr_feat, self._f_avg[layer], forward=True)
+                        self.__gloo_all_to_all(self.dtype, feat_sm, self._sm_cpu[layer], self._sm_recv_cpu[layer], 
+                                                self._sm_recv[layer], (tag+100), self._corr_feat, self._f_avg[layer], forward=True)
                 
                 self._f_cuda_event[layer].record(self._comm_stream)
                 if self._corr_feat:
@@ -569,20 +533,18 @@ class Buffer(object):
                 raise NotImplementedError
         else:     
             with quant_timer.timer(f'fquant_{layer}'):
-                quant_feat, feat_scale, feat_mn = self.__quant_data(feat, forward=True, data_type=self.dtype2, nbit=self.nbits2)
+                quant_feat, feat_sm = self.__quant_data(feat, forward=True, data_type=self.dtype2, nbit=self.nbits2)
             if self._backend == 'gloo':
                 self._comm_stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self._comm_stream):
-                    if feat_scale is None and feat_mn is None:
+                    if feat_sm is None:
                         self.__gloo_all_to_all(self.dtype2, quant_feat, self._feat_cpu_e1[layer], self._f_recv_cpu_e1[layer], self._f_recv_e1[layer],
                                                 tag, self._corr_feat, self._f_avg[layer], forward=True)
                     else:
                         self.__gloo_all_to_all(self.dtype2, quant_feat, self._feat_cpu_e1[layer], self._f_recv_cpu_e1[layer], 
                                                 self._f_recv_e1[layer], tag, self._corr_feat, self._f_avg[layer], forward=True)
-                        self.__gloo_all_to_all(self.dtype2, feat_scale, self._scale_cpu_e1[layer], self._scale_recv_cpu_e1[layer], 
-                                                self._scale_recv_e1[layer], (tag+100), self._corr_feat, self._f_avg[layer], forward=True)
-                        self.__gloo_all_to_all(self.dtype2, feat_mn, self._mn_cpu_e1[layer], self._mn_recv_cpu_e1[layer], 
-                                                self._mn_recv_e1[layer], (tag+200), self._corr_feat, self._f_avg[layer], forward=True)
+                        self.__gloo_all_to_all(self.dtype, feat_sm, self._sm_cpu_e1[layer], self._sm_recv_cpu_e1[layer], 
+                                                self._sm_recv_e1[layer], (tag+100), self._corr_feat, self._f_avg[layer], forward=True)
                         
                 self._f_cuda_event[layer].record(self._comm_stream)
                 if self._corr_feat:
@@ -608,8 +570,9 @@ class Buffer(object):
                             else:
                                 # grad[self._selected[i]] += dequantize_and_unpack(self._b_recv[layer][i], self.nbits, 
                                 #                                             shape, self._gscale_recv[layer][i].float(), self._gmn_recv[layer][i].float()) 
+                                gsm = torch.chunk(self._gsm_recv[layer][i], 2, dim=0)
                                 commu_part = dequantize_and_unpack(self._b_recv[layer][i], self.nbits, 
-                                                                            shape, self._gscale_recv[layer][i].float(), self._gmn_recv[layer][i].float())
+                                                                            shape, gsm[0].float(), gsm[1].float())
                                 grad[self._selected[i]] += commu_part
                                 # err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
                                 # err_tmp = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)) / torch.norm(self._b_recv32[layer][i].float(), dim=1, p=2)
@@ -623,26 +586,27 @@ class Buffer(object):
             else:
                 for i in range(size):
                     if i != rank:
-                        if self.dtype2 == 'int4' or self.dtype2 == 'int2' or self.dtype2 == 'int1':
+                        if self.dtype2 == 'fp32' or self.dtype2 == 'fp16':
+                            grad[self._selected[i]] += self._b_recv_e1[layer][i].float()
+                        else:
                             shape = torch.Size([self._send_shape[i], self._layer_size[layer]])
                             if self._pipeline and self._epoch == 0:
                                 grad[self._selected[i]] += torch.zeros(shape, device='cuda')
                             else:
                                 # grad[self._selected[i]] += dequantize_and_unpack(self._b_recv[layer][i], self.nbits, 
                                 #                                             shape, self._gscale_recv[layer][i].float(), self._gmn_recv[layer][i].float()) 
+                                gsm = torch.chunk(self._gsm_recv_e1[layer][i], 2, dim=0)
                                 commu_part = dequantize_and_unpack(self._b_recv_e1[layer][i], self.nbits2, 
-                                                                            shape, self._gscale_recv_e1[layer][i].float(), self._gmn_recv_e1[layer][i].float())
+                                                                            shape, gsm[0].float(), gsm[1].float())
                                 grad[self._selected[i]] += commu_part
                                 # err = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)).mean()
                                 # err_tmp = torch.sqrt(((self._b_recv32[layer][i].float() - commu_part) ** 2).sum(1)) / torch.norm(self._b_recv32[layer][i].float(), dim=1, p=2)
                                 
                                 # self.grad_abs_err += err
                                 # self.grad_rel_err += err_tmp.mean()                            
-                        else:
-                            if self.dtype2 == 'int8':
-                                grad[self._selected[i]] += self._b_recv_e1[layer][i].float() * 0.01
-                            else:
-                                grad[self._selected[i]] += self._b_recv_e1[layer][i].float()
+                        # elif self.dtype2 == 'int8':
+                        #     grad[self._selected[i]] += self._b_recv_e1[layer][i].float() * 0.01
+                                
 
 
     def __grad_hook(self, epoch, layer):
@@ -679,35 +643,31 @@ class Buffer(object):
             nbit = self.nbits2
             
         with quant_timer.timer(f'bquant_{layer}'):
-            quant_grad, grad_scale, grad_mn = self.__quant_data(grad, forward=False, data_type=data_type, nbit=nbit)
+            quant_grad, grad_sm = self.__quant_data(grad, forward=False, data_type=data_type, nbit=nbit)
         if self._backend == 'gloo':
             self._comm_stream.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(self._comm_stream):
                 if not self.change_layer_b and not self.change_epoch_b:
-                    if grad_scale is None and grad_mn is None:
+                    if grad_sm is None:
                         self.__gloo_all_to_all(data_type, quant_grad, self._grad_cpu[layer], self._b_recv_cpu[layer], self._b_recv[layer],
                                         tag, self._corr_grad, self._b_avg[layer], forward=False)
                     else:
                         self.__gloo_all_to_all(data_type, quant_grad, self._grad_cpu[layer], self._b_recv_cpu[layer], 
                                                 self._b_recv[layer], tag, self._corr_grad, self._b_avg[layer], forward=False)
-                        self.__gloo_all_to_all(data_type, grad_scale, self._gscale_cpu[layer], self._gscale_recv_cpu[layer],
-                                                self._gscale_recv[layer], (tag+100), self._corr_grad, self._b_avg[layer], forward=False)
-                        self.__gloo_all_to_all(data_type, grad_mn, self._gmn_cpu[layer], self._gmn_recv_cpu[layer], 
-                                                self._gmn_recv[layer], (tag+200), self._corr_grad, self._b_avg[layer], forward=False)
+                        self.__gloo_all_to_all(data_type, grad_sm, self._gsm_cpu[layer], self._gsm_recv_cpu[layer],
+                                                self._gsm_recv[layer], (tag+100), self._corr_grad, self._b_avg[layer], forward=False)
                     # transfer one more fp32 gradient
                     # self.__gloo_all_to_all(grad, self._grad_cpu32[layer], self._b_recv_cpu32[layer], self._b_recv32[layer],
                     #                     tag, self._corr_grad, self._b_avg[layer], forward=False)
                 else:
-                    if grad_scale is None and grad_mn is None:
+                    if grad_sm is None:
                         self.__gloo_all_to_all(data_type, quant_grad, self._grad_cpu_e1[layer], self._b_recv_cpu_e1[layer], self._b_recv_e1[layer],
                                         tag, self._corr_grad, self._b_avg[layer], forward=False)
                     else:
                         self.__gloo_all_to_all(data_type, quant_grad, self._grad_cpu_e1[layer], self._b_recv_cpu_e1[layer], 
                                                 self._b_recv_e1[layer], tag, self._corr_grad, self._b_avg[layer], forward=False)
-                        self.__gloo_all_to_all(data_type, grad_scale, self._gscale_cpu_e1[layer], self._gscale_recv_cpu_e1[layer],
-                                                self._gscale_recv_e1[layer], (tag+100), self._corr_grad, self._b_avg[layer], forward=False)
-                        self.__gloo_all_to_all(data_type, grad_mn, self._gmn_cpu_e1[layer], self._gmn_recv_cpu_e1[layer], 
-                                                self._gmn_recv_e1[layer], (tag+200), self._corr_grad, self._b_avg[layer], forward=False)
+                        self.__gloo_all_to_all(data_type, grad_sm, self._gsm_cpu_e1[layer], self._gsm_recv_cpu_e1[layer],
+                                                self._gsm_recv_e1[layer], (tag+100), self._corr_grad, self._b_avg[layer], forward=False)
                 
             self._b_cuda_event[layer].record(self._comm_stream)
             if self._corr_grad:
@@ -719,37 +679,32 @@ class Buffer(object):
 
     def __quant_data(self, data, forward, data_type, nbit):
         rank, size = dist.get_rank(), dist.get_world_size()
-        # Data quantilization
-        if data_type == 'fp16':
+        if data_type == 'fp32':
+            quant_data = data
+            data_sm = None
+        elif data_type == 'fp16':
             quant_data = data.half()
-            data_scale = None
-            data_mn = None
+            data_sm = None
         # elif data_type == 'int8':
         #     quant_data= data * 100
         #     quant_data = quant_data.char()
         #     data_scale = None
         #     data_mn = None
-        elif data_type == 'fp32':
-            quant_data = data
-            data_scale = None
-            data_mn = None
         else:
-            quant_data, data_scale, data_mn = [], [], []
+            quant_data, data_sm = [], []
             for i in range(size):
                 if i == rank:
                     quant_data.append(None)
-                    data_scale.append(None)
-                    data_mn.append(None)
+                    data_sm.append(None)
                 else:
                     if forward:
                         data_part, scale, mn = quantize_and_pack(data[self._selected[i]], nbit)
                     else:
                         data_part, scale, mn = quantize_and_pack(data[self._pl[i]:self._pr[i]], nbit)
                     quant_data.append(data_part)
-                    data_scale.append(scale.half())
-                    data_mn.append(mn.half())
+                    data_sm.append(torch.cat((scale.half(), mn.half())))
         
-        return quant_data, data_scale, data_mn 
+        return quant_data, data_sm
     
     
     def fetchdata(self, layer, h):
