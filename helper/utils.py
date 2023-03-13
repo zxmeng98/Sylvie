@@ -315,8 +315,8 @@ def timer(s):
     print('(rank %d) running time of %s: %.3f seconds' % (rank, s, time.time() - t))
 
 
-def boundary_div_deg(boundary, node_dict):
-    # 按照degree分组boundary nodes
+def boundary_deg_group(boundary, node_dict):
+    # 按照degree分组boundary nodes ID
     rank, size = dist.get_rank(), dist.get_world_size()
     device = 'cuda'
     boundary_devide = [None] * size
@@ -337,5 +337,63 @@ def boundary_div_deg(boundary, node_dict):
     return boundary_devide
 
 
-def get_recv_shape_ada():
+def get_recv_info_ada(boundary_group, hidden_size, recv_shape, assign_bits):
+    # According to the assigned node bits, prepare the quant group buffer size  
+    rank, size = dist.get_rank(), dist.get_world_size()
     
+    qgroup_size = [] # [None, [], [], []]
+    for j in range(size):
+        tmp = []
+        if j == rank:
+            qgroup_size.append(None)
+            continue
+        for k in range(len(assign_bits)):
+            fake_send = torch.randn(len(boundary_group[j][k]), hidden_size).cuda()
+            quant_feat_send, _, _ = quantize_and_pack(fake_send, assign_bits[k])
+            s = quant_feat_send.shape[0]
+            tmp.append(s)
+        
+        tmp = torch.tensor(tmp) 
+        qgroup_size.append(tmp)
+    
+    qgroup_recv = [None] * size
+    group_recv_id = [None] * size # nodes get from other partitions
+    group_recv_size = [None] * size 
+    # Send after quant group buffer size, grouped node IDs, grouped node size
+    for i in range(1, size):
+        left = (rank - i + size) % size
+        right = (rank + i) % size
+        
+        if dist.get_backend() == 'gloo':
+            qgroup_recv_left = torch.zeros(len(assign_bits), dtype=torch.long)
+        req = dist.isend(qgroup_size[right], dst=right) # ! send tensor must be on cpu
+        dist.recv(qgroup_recv_left, src=left)
+        qgroup_recv[left] = qgroup_recv_left
+        if dist.get_backend() == 'gloo':
+            shuffled_ids = torch.zeros(recv_shape[left], dtype=torch.long)
+            tmp = torch.cat(boundary_group[right]).cpu()
+        req.wait()
+        req = dist.isend(tmp, dst=right)
+        dist.recv(shuffled_ids, src=left)
+        group_recv_id[left] = shuffled_ids 
+        if dist.get_backend() == 'gloo':
+            group_size = torch.zeros(len(assign_bits), dtype=torch.long)
+        req.wait()
+        req = dist.isend(torch.tensor([boundary_group[right][k].shape[0] for k in range(len(assign_bits))]), dst=right)
+        dist.recv(group_size, src=left)
+        group_recv_size[left] = group_size
+        req.wait()
+
+    return qgroup_size, qgroup_recv, group_recv_id, group_recv_size
+
+    
+        
+        
+        
+            
+        
+        
+
+    
+                
+                

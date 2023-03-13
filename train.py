@@ -90,11 +90,13 @@ def get_pos(node_dict, gpb):
         if i == rank:
             pos.append(None)
         else:
-            part_size = gpb.partid2nids(i).shape[0]
+            part_size = gpb.partid2nids(i).shape[0] # part_size 是第 i 个 partition inner nodes 的 size, gpb.partid2nids(i)： From partition ID i to global node IDs
+            # print(rank, i, part_size, gpb.partid2nids(i), node_dict[dgl.NID].shape) 
+            # exit(0)
             start = gpb.partid2nids(i)[0].item()
             p = minus_one_tensor(part_size, 'cuda')
-            in_idx = nonzero_idx(node_dict['part_id'] == i)
-            out_idx = node_dict[dgl.NID][in_idx] - start
+            in_idx = nonzero_idx(node_dict['part_id'] == i) # 属于第i个partition的nodes在当前partition所有nodes list的index
+            out_idx = node_dict[dgl.NID][in_idx] - start # 属于第i个partition的nodes相对于第i个partition的index
             p[out_idx] = in_idx
             pos.append(p)
     return pos
@@ -249,6 +251,7 @@ def reduce_hook(param, name, n_train):
 
 
 def construct(part, graph, pos, one_hops):
+    # 根据属于不同partition的boundary nodes重新组织graph，从而让后面concatenate了的feature和node ID对应上
     rank, size = dist.get_rank(), dist.get_world_size()
     tot = part.num_nodes()
     u, v = part.edges()
@@ -260,7 +263,7 @@ def construct(part, graph, pos, one_hops):
             u = one_hops[i]
             if u.shape[0] == 0:
                 continue
-            u = pos[i][u]
+            u = pos[i][u] # 属于第i个partition的boundary nodes在本地的index
             u_ = torch.repeat_interleave(graph.out_degrees(u.int()).long()) + tot
             tot += u.shape[0]
             _, v = graph.out_edges(u.int())
@@ -272,16 +275,6 @@ def construct(part, graph, pos, one_hops):
     if g.num_nodes('_U') < tot:
         g.add_nodes(tot - g.num_nodes('_U'), ntype='_U')
     return g
-
-
-def extract(graph, node_dict):
-    rank, size = dist.get_rank(), dist.get_world_size()
-    sel = (node_dict['part_id'] < size)
-    for key in node_dict.keys():
-        if node_dict[key].shape[0] == sel.shape[0]:
-            node_dict[key] = node_dict[key][sel]
-    graph = dgl.node_subgraph(graph, sel, store_ids=False)
-    return graph, node_dict
 
 
 def get_send_size(boundary, prob):
@@ -297,22 +290,6 @@ def get_send_size(boundary, prob):
         # TODO: ratio.append(1 if args.model == 'gat' else s / b.shape[0])
         ratio.append(s / b.shape[0])
     return res, ratio
-
-
-def construct_feat(num, feat, pos, one_hops):
-    rank, size = dist.get_rank(), dist.get_world_size()
-    res = [feat[0:num]]
-    for i in range(size):
-        if i == rank:
-            continue
-        else:
-            u = one_hops[i]
-            if u.shape[0] == 0:
-                continue
-            u = pos[i][u]
-            res.append(feat[u])
-
-    return torch.cat(res)
 
 
 def run(graph, node_dict, gpb, args):
@@ -353,7 +330,9 @@ def run(graph, node_dict, gpb, args):
     # Get boundary info
     boundary = get_boundary(node_dict, gpb) # list: node index that current partition sends to other partitions 
 
+    # Get boundary nodes在别的partition和本地partition的index对应
     pos = get_pos(node_dict, gpb)
+
     graph, one_hops = order_graph(part, graph, gpb, node_dict, pos)
     in_deg = node_dict['in_degree'] # 是按 local node ID顺序来的 
     # if rank != 0:
@@ -361,17 +340,16 @@ def run(graph, node_dict, gpb, args):
     #     # pd_deg = pd.DataFrame(columns=['idx', 'deg'], data=[boundary[0], in_deg[boundary[0]]])
     #     pd_deg.to_csv(f'./results/deg_{rank}.csv', index=False)
     graph, node_dict, boundary = move_train_first(graph, node_dict, boundary)
-    boundary_divide = boundary_div_deg(boundary, node_dict)
+    boundary_group = boundary_deg_group(boundary, node_dict)
 
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
-    #TODO: recv_shape, send_size rewrite
-    recv_shape_ada = get_recv_shape_ada()
-    
+    assign_bits = [1, 4]
+    qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size = get_recv_info_ada(boundary_group, layer_size[1], recv_shape, assign_bits)
+
     
     # '_U'包含boundary nodes, '_V'只有inner nodes
-    # [args.n_hidden]*(args.k+1)
     if args.model == 'appnp':
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_hidden]*(args.k+1),
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
@@ -383,9 +361,9 @@ def run(graph, node_dict, gpb, args):
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     else:
-        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear],
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    ctx.dbuffer.set_selected(boundary)
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size,
+                           use_pp=args.use_pp, backend=args.backend, bits=assign_bits, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+    ctx.dbuffer.set_selected(boundary_group)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)

@@ -29,19 +29,23 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 
 
 # m0 = torch.cuda.memory_allocated()
-a = torch.tensor([1, 2, 3, 4, 5])
-b = torch.tensor([True, False, True, False, False])
-# b = torch.rand(4, 3)
+a = torch.cat((torch.zeros(4, pin_memory=True, dtype=torch.half), torch.zeros(4, pin_memory=True, dtype=torch.half)))
+# b = torch.tensor([True, False, True, False, False])
+# c = [1,2,3,4,5,6]
+# a = torch.tensor([[1,2,3], [2,3,4,5]])
+# a = torch.tensor([i for i in range(5)])
+# s1 = torch.Size([32])
 # c = torch.cat((a, b))
 # m1 = torch.cuda.memory_allocated()
 # print(f'size: {a.shape}, type: {a.type()}, before quant: {(m1-m0)/(1024*1024)} MiB')
 # print(f'size: {c.shape}, {c}, {c.float()}')
-print(a[b]-2)
+print(a.shape, a)
 
-# quant_a,scale,mn = quantize_and_pack(a, 1)
+
+# quant_a,scale,mn = quantize_and_pack(a, 4)
 
 # print(f'size: {quant_a.shape}, type: {quant_a.type()}, after quant: {(torch.cuda.memory_allocated()-m1)/(1024*1024)} MiB')
-# print(scale.shape, mn.type())
+# print(quant_a.shape, scale.shape, mn.shape)
 
 # print(f"Full Precision: {full_precision_tensor}, type: {full_precision_tensor.type()}")
 # # a = full_precision_tensor * 10
