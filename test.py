@@ -29,7 +29,9 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 
 
 # m0 = torch.cuda.memory_allocated()
-a = torch.cat((torch.zeros(4, pin_memory=True, dtype=torch.half), torch.zeros(4, pin_memory=True, dtype=torch.half)))
+a = torch.tensor([2, 3])
+b = torch.tensor([1, 2, 3, 4, 10])
+c = torch.split(b, a.numpy().tolist(), dim=0)
 # b = torch.tensor([True, False, True, False, False])
 # c = [1,2,3,4,5,6]
 # a = torch.tensor([[1,2,3], [2,3,4,5]])
@@ -39,7 +41,8 @@ a = torch.cat((torch.zeros(4, pin_memory=True, dtype=torch.half), torch.zeros(4,
 # m1 = torch.cuda.memory_allocated()
 # print(f'size: {a.shape}, type: {a.type()}, before quant: {(m1-m0)/(1024*1024)} MiB')
 # print(f'size: {c.shape}, {c}, {c.float()}')
-print(a.shape, a)
+print(c)
+
 
 
 # quant_a,scale,mn = quantize_and_pack(a, 4)

@@ -320,24 +320,29 @@ def boundary_deg_group(boundary, node_dict):
     rank, size = dist.get_rank(), dist.get_world_size()
     device = 'cuda'
     boundary_devide = [None] * size
+    grad_boundary_idx = [None] * size
     for i in range(size):
         if i == rank:
             continue
         else:
             degree_bdry = node_dict['in_degree'][boundary[i]]
-            df_degree_bdry = pd.DataFrame({'idx': boundary[i].cpu(), 'deg':degree_bdry.cpu()})
-            df_degree_bdry.sort_values(by=['deg'], inplace=True)
+            df_degree_bdry = pd.DataFrame({'idx': boundary[i].cpu(), 'deg': degree_bdry.cpu()})
+            # df_degree_bdry.sort_values(by=['deg'], inplace=True)
             
             # TODO: Choose nodes (degree = 3) to be quantized to 1 bit
             bdry1 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] == 3]['idx']), device=device)
             bdry2 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] != 3]['idx']), device=device)
             
-            boundary_devide[i] = [bdry1, bdry2]
+            grad_bdry1_idx = torch.tensor(list(df_degree_bdry.loc[df_degree_bdry['deg'] == 3].index), device=device)
+            grad_bdry2_idx = torch.tensor(list(df_degree_bdry.loc[df_degree_bdry['deg'] != 3].index), device=device)
             
-    return boundary_devide
+            boundary_devide[i] = [bdry1, bdry2]
+            grad_boundary_idx[i] = [grad_bdry1_idx, grad_bdry2_idx]
+            
+    return boundary_devide, grad_boundary_idx
 
 
-def get_recv_info_ada(boundary_group, hidden_size, recv_shape, assign_bits):
+def get_recv_info_ada(boundary_group, grad_boundary_idx, hidden_size, recv_shape, assign_bits):
     # According to the assigned node bits, prepare the quant group buffer size  
     rank, size = dist.get_rank(), dist.get_world_size()
     
@@ -359,7 +364,8 @@ def get_recv_info_ada(boundary_group, hidden_size, recv_shape, assign_bits):
     qgroup_recv = [None] * size
     group_recv_id = [None] * size # nodes get from other partitions
     group_recv_size = [None] * size 
-    # Send after quant group buffer size, grouped node IDs, grouped node size
+    grad_bdry_idx_recv = [None] * size 
+    # Send after quant group buffer size, grouped node IDs, grouped node size, gradient boundary nodes index
     for i in range(1, size):
         left = (rank - i + size) % size
         right = (rank + i) % size
@@ -382,9 +388,16 @@ def get_recv_info_ada(boundary_group, hidden_size, recv_shape, assign_bits):
         req = dist.isend(torch.tensor([boundary_group[right][k].shape[0] for k in range(len(assign_bits))]), dst=right)
         dist.recv(group_size, src=left)
         group_recv_size[left] = group_size
+        if dist.get_backend() == 'gloo':
+            shuffled_grad_idx = torch.zeros(recv_shape[left], dtype=torch.long)
+            tmp = torch.cat(grad_boundary_idx[right]).cpu()
+        req.wait()
+        req = dist.isend(tmp, dst=right)
+        dist.recv(shuffled_grad_idx, src=left)
+        grad_bdry_idx_recv[left] = shuffled_grad_idx 
         req.wait()
 
-    return qgroup_size, qgroup_recv, group_recv_id, group_recv_size
+    return qgroup_size, qgroup_recv, group_recv_id, group_recv_size, grad_bdry_idx_recv
 
     
         

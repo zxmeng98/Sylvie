@@ -12,7 +12,11 @@ python main.py \
   --inductive \
   --datatype int1 \
   --use-pp \
-  --fix-seed 
+  --fix-seed \
+  --skip-partition \
+  --n-class 41 \
+  --n-feat 602 \
+  --n-train 153431 
   # --save_testacc
   # --enable_pipeline 
 

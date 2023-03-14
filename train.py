@@ -340,15 +340,14 @@ def run(graph, node_dict, gpb, args):
     #     # pd_deg = pd.DataFrame(columns=['idx', 'deg'], data=[boundary[0], in_deg[boundary[0]]])
     #     pd_deg.to_csv(f'./results/deg_{rank}.csv', index=False)
     graph, node_dict, boundary = move_train_first(graph, node_dict, boundary)
-    boundary_group = boundary_deg_group(boundary, node_dict)
+    boundary_group, grad_boundary_idx = boundary_deg_group(boundary, node_dict)
 
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
     assign_bits = [1, 4]
-    qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size = get_recv_info_ada(boundary_group, layer_size[1], recv_shape, assign_bits)
+    qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size, grad_bdry_idx_recv = get_recv_info_ada(boundary_group, grad_boundary_idx, layer_size[1], recv_shape, assign_bits)
 
-    
     # '_U'包含boundary nodes, '_V'只有inner nodes
     if args.model == 'appnp':
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, [args.n_hidden]*(args.k+1),
@@ -363,7 +362,7 @@ def run(graph, node_dict, gpb, args):
     else:
         ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size,
                            use_pp=args.use_pp, backend=args.backend, bits=assign_bits, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
-    ctx.dbuffer.set_selected(boundary_group)
+    ctx.dbuffer.set_selected(boundary_group, grad_bdry_idx_recv)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
