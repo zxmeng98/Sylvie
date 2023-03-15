@@ -397,6 +397,7 @@ def run(graph, node_dict, gpb, args):
 
     train_dur, comm_dur, reduce_dur, extra_dur = [], [], [], []
     quant_dur, dequant_dur = [], []
+    fdequant_dur = []
 
     torch.cuda.reset_peak_memory_stats()
     thread = None
@@ -477,22 +478,26 @@ def run(graph, node_dict, gpb, args):
 
             # Process the quant & dequant time 
             quant_t, dequant_t = 0, 0
+            fdequant = 0
             for (k, (t0, t1)) in quant_timer._time.items():
                 str_list = k.split('_')
                 if str_list[0] == 'fquant' or str_list[0] == 'bquant':
                     quant_t += t1 - t0
                 else:
                     dequant_t += t1 - t0
+                if str_list[0] == 'fdequant':
+                    fdequant += t1 - t0
             quant_dur.append(quant_t)
             dequant_dur.append(dequant_t)
+            fdequant_dur.append(fdequant)
 
         if (epoch + 1) % 10 == 0:
             # compute_t = np.mean(train_dur) - np.mean(comm_dur) - np.mean(reduce_dur)
             compute_t = np.mean(train_dur) - np.mean(comm_dur) - np.mean(reduce_dur) - np.mean(dequant_dur)
             # print("Process {:03d} | Epoch {:05d} | Time(s) {:.4f} | Comm(s) {:.4f} | Reduce(s) {:.4f} | Compute(s) {:.4f} | Loss {:.4f}".format(
             #       rank, epoch, np.mean(train_dur), np.mean(comm_dur), np.mean(reduce_dur), compute_t, loss.item() / part_train))
-            print("Process {:03d} | Epoch {:05d} | Time(s) {:.4f} | Comm(s) {:.4f} | Reduce(s) {:.4f} | Compute(s) {:.4f} | Extra(s) {:.4f}, quant {:.4f}, dequant {:.4f} | Loss {:.4f}".format(
-                  rank, epoch, np.mean(train_dur), np.mean(comm_dur)-np.mean(quant_dur), np.mean(reduce_dur), compute_t, np.mean(extra_dur), np.mean(quant_dur), np.mean(dequant_dur), loss.item() / part_train))
+            print("Process {:03d} | Epoch {:05d} | Time(s) {:.4f} | Comm(s) {:.4f} | Reduce(s) {:.4f} | Compute(s) {:.4f} | Extra(s) {:.4f}, quant {:.4f}, dequant {:.4f}, fdequant {:.4f}| Loss {:.4f}".format(
+                  rank, epoch, np.mean(train_dur), np.mean(comm_dur)-np.mean(quant_dur), np.mean(reduce_dur), compute_t, np.mean(extra_dur), np.mean(quant_dur), np.mean(dequant_dur), np.mean(fdequant_dur), loss.item() / part_train))
 
         ctx.comm_timer.clear()
         ctx.quant_timer.clear()

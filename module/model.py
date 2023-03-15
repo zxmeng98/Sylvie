@@ -62,12 +62,9 @@ class GraphSAGE(GNNBase):
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
                     
                     # ctx.buffer.layer_pos = 3
-                    h, commu_part, commu_part32 = ctx.dbuffer.update(i, h)
+                    h = ctx.dbuffer.update(i, h)
                     
                     # Test error-bit
-                    if i == self.n_layers - self.n_linear - 1:
-                        self.commu_part = commu_part
-                        self.commu_part32 = commu_part32
                         # a = torch.sqrt(((commu_part32-commu_part)**2).sum(1))
                         # self.abs_err.append(a.view(1, -1))
                     # abs_err += torch.sqrt(((commu_part32-commu_part1)**2).sum(1)).mean()
