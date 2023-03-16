@@ -362,10 +362,9 @@ def get_recv_info_ada(boundary_group, grad_boundary_idx, hidden_size, recv_shape
         qgroup_size.append(tmp)
     
     qgroup_recv = [None] * size
-    group_recv_id = [None] * size # nodes get from other partitions
     group_recv_size = [None] * size 
-    grad_bdry_idx_recv = [None] * size 
-    # Send after quant group buffer size, grouped node IDs, grouped node size, gradient boundary nodes index
+    grad_bdry_idx_recv = [None] * size # the index of nodes get from other partitions
+    # Send after quant group buffer size, grouped node size, gradient boundary nodes index
     for i in range(1, size):
         left = (rank - i + size) % size
         right = (rank + i) % size
@@ -375,13 +374,6 @@ def get_recv_info_ada(boundary_group, grad_boundary_idx, hidden_size, recv_shape
         req = dist.isend(qgroup_size[right], dst=right) # ! send tensor must be on cpu
         dist.recv(qgroup_recv_left, src=left)
         qgroup_recv[left] = qgroup_recv_left
-        if dist.get_backend() == 'gloo':
-            shuffled_ids = torch.zeros(recv_shape[left], dtype=torch.long)
-            tmp = torch.cat(boundary_group[right]).cpu()
-        req.wait()
-        req = dist.isend(tmp, dst=right)
-        dist.recv(shuffled_ids, src=left)
-        group_recv_id[left] = shuffled_ids 
         if dist.get_backend() == 'gloo':
             group_size = torch.zeros(len(assign_bits), dtype=torch.long)
         req.wait()
@@ -397,7 +389,7 @@ def get_recv_info_ada(boundary_group, grad_boundary_idx, hidden_size, recv_shape
         grad_bdry_idx_recv[left] = shuffled_grad_idx 
         req.wait()
 
-    return qgroup_size, qgroup_recv, group_recv_id, group_recv_size, grad_bdry_idx_recv
+    return qgroup_size, qgroup_recv, group_recv_size, grad_bdry_idx_recv
 
     
         

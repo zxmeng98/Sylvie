@@ -4,7 +4,7 @@ python main.py \
   --lr 0.01 \
   --weight_decay 0 \
   --n-partitions 4 \
-  --n-epochs 100 \
+  --n-epochs 2000 \
   --model graphsage \
   --n-layers 4 \
   --n-hidden 128 \
@@ -16,8 +16,8 @@ python main.py \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
-  --n-train 153431 
-  # --save_testacc
+  --n-train 153431 \
+  --save_testacc
   # --enable_pipeline 
 
 

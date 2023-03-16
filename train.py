@@ -345,8 +345,8 @@ def run(graph, node_dict, gpb, args):
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
-    assign_bits = [1, 4]
-    qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size, grad_bdry_idx_recv = get_recv_info_ada(boundary_group, grad_boundary_idx, layer_size[1], recv_shape, assign_bits)
+    assign_bits = [1, 1]
+    qgroup_send_size, qgroup_buffer_size, group_recv_size, grad_bdry_idx_recv = get_recv_info_ada(boundary_group, grad_boundary_idx, layer_size[1], recv_shape, assign_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
     if args.model == 'appnp':
@@ -360,7 +360,7 @@ def run(graph, node_dict, gpb, args):
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     else:
-        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], qgroup_send_size, qgroup_buffer_size, group_recv_id, group_recv_size,
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], qgroup_send_size, qgroup_buffer_size, group_recv_size,
                            use_pp=args.use_pp, backend=args.backend, bits=assign_bits, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
     ctx.dbuffer.set_selected(boundary_group, grad_bdry_idx_recv)
 
@@ -529,7 +529,7 @@ def run(graph, node_dict, gpb, args):
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
                     # acc_file_csv = 'results/%s_%s_1_p.csv' % (args.dataset, args.model)
-                    acc_file_csv = 'results/test-1.csv'
+                    acc_file_csv = 'results/test.csv'
                 dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train, 'epoch t': train_dur[-1]}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):

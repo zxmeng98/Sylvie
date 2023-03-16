@@ -73,7 +73,7 @@ class DegreeBuffer(object):
         self.layer_pos = 50
 
 
-    def init_buffer(self, num_in, num_all, f_send_shape, f_recv_shape, layer_size, qgroup_send_size, qgroup_recv_size, group_recv_id, group_recv_size, 
+    def init_buffer(self, num_in, num_all, f_send_shape, f_recv_shape, layer_size, qgroup_send_size, qgroup_recv_size, group_recv_size, 
                     use_pp=False, backend='gloo', bits=[1, 4], pipeline=False, fixed_synchro=None):
         rank, size = dist.get_rank(), dist.get_world_size()
         self._num_in = num_in
@@ -87,9 +87,8 @@ class DegreeBuffer(object):
         self._fixed_synchro = fixed_synchro
         self._qgroup_send_size = qgroup_send_size # [None, tensor([   1025, 1803393]), tensor([    897, 1585153]), tensor([   257, 941825])]
         self._qgroup_recv_size = qgroup_recv_size # [None, tensor([   257, 696321]), tensor([    257, 1270017]), tensor([    385, 1114881])]
-        self._group_recv_id = group_recv_id # [None, tensor([35910, 39273, 17624,  ...,  3459,  3323,  3335]), tensor([ 3392, 13438, 13440,  ..., 26985, 26989, 26990]), tensor([ 3108, 15941,  1805,  ...,  6876,  6847,   189])]
         self._group_recv_size = group_recv_size # [None, tensor([   10, 10879]), tensor([   13, 19843]), tensor([   23, 17420])]
-       # [None, tensor([10598, 10877,  8963,  ...,  1828,  1768,  1774]), tensor([ 2151,  8252,  8254,  ..., 14550, 14552, 14553]), tensor([1695, 7895,  926,  ..., 3558, 3537,   97])]
+       # [None, tensor([ 2183,  8963,  9176,  ..., 10886, 10887, 10888]), tensor([ 1602,  1604,  2151,  ..., 19853, 19854, 19855]), tensor([  926,   929,  1633,  ..., 17440, 17441, 17442])]
         
         
         if backend == 'gloo':
@@ -420,6 +419,7 @@ class DegreeBuffer(object):
                                 tmp.append(subpart)
         return torch.cat(tmp)
 
+
     def update(self, layer, feat):
         rank, size = dist.get_rank(), dist.get_world_size()
         torch.cuda.current_stream().synchronize()
@@ -540,9 +540,6 @@ class DegreeBuffer(object):
                                 grad_tmp.append(sub_grad)
 
                             # Reorder gradients back
-                            # df_bdry_grad = pd.DataFrame({'idx': torch.cat(self._selected[i]).cpu(), 'grad': torch.cat(grad_tmp).cpu().numpy().tolist()})
-                            # df_bdry_grad.sort_values(by=['idx'], inplace=True)
-                            # raw = np.vstack(df_bdry_grad['grad'].values).astype(float)
                             grad[torch.cat(self._selected[i])] += torch.cat(grad_tmp)
      
             else:

@@ -29,19 +29,31 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 
 
 # m0 = torch.cuda.memory_allocated()
-a = torch.tensor([2, 3])
-b = torch.tensor([1, 2, 3, 4, 10])
-c = torch.split(b, a.numpy().tolist(), dim=0)
+# a = torch.tensor([2, 3])
+# b = torch.tensor([1, 2, 3, 4, 10])
+# c = torch.split(b, a.numpy().tolist(), dim=0)
 # b = torch.tensor([True, False, True, False, False])
 # c = [1,2,3,4,5,6]
-# a = torch.tensor([[1,2,3], [2,3,4,5]])
+torch.manual_seed(0)
+a = torch.randn((3, 6)).cuda()
+# print(a)
+# a += 2
+# a_sub = a[:8]
+data, scale, mn = quantize_and_pack(a, 16)
+aa = dequantize_and_unpack(data, 16, a.shape, scale, mn)
+# data_sub, scale_sub, mn_sub = quantize_and_pack(a_sub, 1)
+# aa_sub = dequantize_and_unpack(data_sub, 1, a_sub.shape, scale_sub, mn_sub)
 # a = torch.tensor([i for i in range(5)])
 # s1 = torch.Size([32])
 # c = torch.cat((a, b))
 # m1 = torch.cuda.memory_allocated()
 # print(f'size: {a.shape}, type: {a.type()}, before quant: {(m1-m0)/(1024*1024)} MiB')
 # print(f'size: {c.shape}, {c}, {c.float()}')
-print(c)
+# print(a)
+# print(data)
+print(aa)
+# print(aa[:8] == aa_sub)
+# print(aa_sub)
 
 
 
