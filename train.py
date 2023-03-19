@@ -423,7 +423,9 @@ def run(graph, node_dict, gpb, args):
     base_bit = 1
     
     for epoch in range(args.n_epochs):
-        ctx.dbuffer.adjust_buffer()
+        # print(f'epoch {epoch}, rank {rank}, bit: {base_bit}')
+        ctx.dbuffer.adjust_buffer(base_bit)
+        # ctx.dbuffer.curr_bits = start_bits
         ctx.dbuffer.set_pipeline()
 
         t0 = time.time()

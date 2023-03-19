@@ -32,8 +32,8 @@ def dequantize_and_unpack(data, bits, shape, scale, mn):
 # a = torch.tensor([2, 3])
 # c = torch.split(b, a.numpy().tolist(), dim=0)
 # b = torch.tensor([True, False, True, False, False])
-start_bits = [1,2,4,8]
-a = torch.nonzero(torch.tensor(start_bits)==4, as_tuple=True)[0]
+start_bits = [1,1,1,1]
+a = torch.nonzero(torch.tensor(start_bits)==2, as_tuple=True)[0]
 print(a)
 
 # torch.manual_seed(0)

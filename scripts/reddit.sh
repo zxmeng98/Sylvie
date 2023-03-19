@@ -1,7 +1,7 @@
 python main.py \
   --dataset reddit \
   --dropout 0.5 \
-  --lr 0.01 \
+  --lr 0.001 \
   --weight_decay 0 \
   --n-partitions 4 \
   --n-epochs 2000 \
