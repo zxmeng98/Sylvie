@@ -52,6 +52,7 @@ if __name__ == '__main__':
             devices = [f'{i}' for i in range(n)]
         mp.set_start_method('spawn', force=True)
         start_id = args.node_rank * args.parts_per_node
+        # base_bit = mp.Value('d',1)
         for i in range(start_id, min(start_id + args.parts_per_node, args.n_partitions)):
             os.environ['CUDA_VISIBLE_DEVICES'] = devices[i % len(devices)]
             p = mp.Process(target=train.init_processes, args=(i, args.n_partitions, args))

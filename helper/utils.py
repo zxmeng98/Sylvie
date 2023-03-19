@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from myconfig import *
 import pandas as pd
-
+from collections import deque
 
 
 class TransferTag:
@@ -315,81 +315,138 @@ def timer(s):
     print('(rank %d) running time of %s: %.3f seconds' % (rank, s, time.time() - t))
 
 
-def boundary_deg_group(boundary, node_dict):
-    # 按照degree分组boundary nodes ID
+def boundary_imp_group(boundary, node_dict):
+    # 按照node importance分组boundary nodes ID
     rank, size = dist.get_rank(), dist.get_world_size()
     device = 'cuda'
-    boundary_devide = [None] * size
-    grad_boundary_idx = [None] * size
+    boundary_4group, boundary_3group, boundary_2group, boundary_1group = [None] * size, [None] * size, [None] * size, [None] * size
+    boundary_4group_idx, boundary_3group_idx, boundary_2group_idx, boundary_1group_idx = [None] * size, [None] * size, [None] * size, [None] * size
     for i in range(size):
         if i == rank:
             continue
         else:
+            # Calculate node importance factor
             degree_bdry = node_dict['in_degree'][boundary[i]]
-            df_degree_bdry = pd.DataFrame({'idx': boundary[i].cpu(), 'deg': degree_bdry.cpu()})
-            # df_degree_bdry.sort_values(by=['deg'], inplace=True)
+            counts = torch.bincount(degree_bdry)
+            step_size = (1 - 0) / boundary[i].shape[0]
+            indegree_ps = counts * step_size
+            indegree_ps = torch.cumsum(indegree_ps, dim=0)
+            imp = indegree_ps[degree_bdry]
+            df_imp = pd.DataFrame({'idx': boundary[i].cpu(), 'imp': imp.cpu()})
             
-            # TODO: Choose nodes (degree = 3) to be quantized to 1 bit
-            bdry1 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] == 3]['idx']), device=device)
-            bdry2 = torch.tensor(np.array(df_degree_bdry.loc[df_degree_bdry['deg'] != 3]['idx']), device=device)
+            # Assigned bits = [1, 2, 4, 8]
+            bdry_id1 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.25)]['idx']), device=device)
+            bdry_id2 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.25) & (df_imp['imp']<0.5)]['idx']), device=device)
+            bdry_id3 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.5) & (df_imp['imp']<0.75)]['idx']), device=device)
+            bdry_id4 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.75) & (df_imp['imp']<=1)]['idx']), device=device)
             
-            grad_bdry1_idx = torch.tensor(list(df_degree_bdry.loc[df_degree_bdry['deg'] == 3].index), device=device)
-            grad_bdry2_idx = torch.tensor(list(df_degree_bdry.loc[df_degree_bdry['deg'] != 3].index), device=device)
+            bdry_idx1 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.25)].index), device=device)
+            bdry_idx2 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.25) & (df_imp['imp']<0.5)].index), device=device)
+            bdry_idx3 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.5) & (df_imp['imp']<0.75)].index), device=device)
+            bdry_idx4 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.75) & (df_imp['imp']<=1)].index), device=device)
             
-            boundary_devide[i] = [bdry1, bdry2]
-            grad_boundary_idx[i] = [grad_bdry1_idx, grad_bdry2_idx]
+            boundary_4group[i] = [bdry_id1, bdry_id2, bdry_id3, bdry_id4]
+            boundary_4group_idx[i] = [bdry_idx1, bdry_idx2, bdry_idx3, bdry_idx4]
             
-    return boundary_devide, grad_boundary_idx
+            # Assigned bits = [2, 4, 8]
+            bdry_id1 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.33)]['idx']), device=device)
+            bdry_id2 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.33) & (df_imp['imp']<0.67)]['idx']), device=device)
+            bdry_id3 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.67) & (df_imp['imp']<=1)]['idx']), device=device)
+            
+            bdry_idx1 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.33)].index), device=device)
+            bdry_idx2 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.33) & (df_imp['imp']<0.67)].index), device=device)
+            bdry_idx3 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.67) & (df_imp['imp']<=1)].index), device=device)
+            
+            boundary_3group[i] = [bdry_id1, bdry_id2, bdry_id3]
+            boundary_3group_idx[i] = [bdry_idx1, bdry_idx2, bdry_idx3]
+            
+            # Assigned bits = [4, 8]
+            bdry_id1 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.5)]['idx']), device=device)
+            bdry_id2 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0.5) & (df_imp['imp']<=1)]['idx']), device=device)
+            
+            bdry_idx1 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.5)].index), device=device)
+            bdry_idx2 = torch.tensor(list(df_imp.loc[(df_imp['imp']>=0.5) & (df_imp['imp']<=1)].index), device=device)
+            
+            boundary_2group[i] = [bdry_id1, bdry_id2]
+            boundary_2group_idx[i] = [bdry_idx1, bdry_idx2]
+            
+            # Assigned bits = [8]
+            boundary_1group[i] = [boundary[i]]
+            boundary_1group_idx[i] = [torch.tensor(list(df_imp.index), device=device)]
+    
+    boundary_group_tot = [boundary_4group, boundary_3group, boundary_2group, boundary_1group]
+    boundary_group_idx_tot = [boundary_4group_idx, boundary_3group_idx, boundary_2group_idx, boundary_1group_idx]
+    
+    return boundary_group_tot, boundary_group_idx_tot
 
 
-def get_recv_info_ada(boundary_group, grad_boundary_idx, hidden_size, recv_shape, assign_bits):
+def get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, hidden_size, recv_shape, start_bits):
     # According to the assigned node bits, prepare the quant group buffer size  
     rank, size = dist.get_rank(), dist.get_world_size()
     
-    qgroup_size = [] # [None, [], [], []]
-    for j in range(size):
-        tmp = []
-        if j == rank:
-            qgroup_size.append(None)
-            continue
-        for k in range(len(assign_bits)):
-            fake_send = torch.randn(len(boundary_group[j][k]), hidden_size).cuda()
-            quant_feat_send, _, _ = quantize_and_pack(fake_send, assign_bits[k])
-            s = quant_feat_send.shape[0]
-            tmp.append(s)
-        
-        tmp = torch.tensor(tmp) 
-        qgroup_size.append(tmp)
+    assign_bits = deque(start_bits)
+    group_num = len(boundary_group_tot)
+    qgroup_size_send_tot = []
     
-    qgroup_recv = [None] * size
-    group_recv_size = [None] * size 
-    grad_bdry_idx_recv = [None] * size # the index of nodes get from other partitions
-    # Send after quant group buffer size, grouped node size, gradient boundary nodes index
-    for i in range(1, size):
-        left = (rank - i + size) % size
-        right = (rank + i) % size
-        
-        if dist.get_backend() == 'gloo':
-            qgroup_recv_left = torch.zeros(len(assign_bits), dtype=torch.long)
-        req = dist.isend(qgroup_size[right], dst=right) # ! send tensor must be on cpu
-        dist.recv(qgroup_recv_left, src=left)
-        qgroup_recv[left] = qgroup_recv_left
-        if dist.get_backend() == 'gloo':
-            group_size = torch.zeros(len(assign_bits), dtype=torch.long)
-        req.wait()
-        req = dist.isend(torch.tensor([boundary_group[right][k].shape[0] for k in range(len(assign_bits))]), dst=right)
-        dist.recv(group_size, src=left)
-        group_recv_size[left] = group_size
-        if dist.get_backend() == 'gloo':
-            shuffled_grad_idx = torch.zeros(recv_shape[left], dtype=torch.long)
-            tmp = torch.cat(grad_boundary_idx[right]).cpu()
-        req.wait()
-        req = dist.isend(tmp, dst=right)
-        dist.recv(shuffled_grad_idx, src=left)
-        grad_bdry_idx_recv[left] = shuffled_grad_idx 
-        req.wait()
+    # Prepare quant send size for each bit group
+    for g in range(group_num):
+        boundary_group = boundary_group_tot[g]
+        qgroup_size = [None] * size # [None, [], [], []]
+        for j in range(size):
+            tmp = []
+            if j == rank:
+                continue
+            for k in range(len(assign_bits)):
+                fake_send = torch.randn(len(boundary_group[j][k]), hidden_size).cuda()
+                quant_feat_send, _, _ = quantize_and_pack(fake_send, assign_bits[k])
+                s = quant_feat_send.shape[0]
+                tmp.append(s)
+            qgroup_size[j] = torch.tensor(tmp) 
+        qgroup_size_send_tot.append(qgroup_size)
+        assign_bits.popleft()
+    
+    qgroup_size_recv_tot = []
+    group_size_recv_tot = []
+    bdry_idx_recv_tot = []
+    assign_bits = deque(start_bits)
+    for g in range(group_num):
+        qgroup_recv = [None] * size
+        group_size_recv = [None] * size 
+        bdry_idx_recv = [None] * size # the index of nodes get from other partitions
 
-    return qgroup_size, qgroup_recv, group_recv_size, grad_bdry_idx_recv
+        qgroup_size = qgroup_size_send_tot[g]
+        boundary_group = boundary_group_tot[g]
+        boundary_idx = boundary_group_idx_tot[g]
+        # Exchange send quanted group size, grouped node size, boundary nodes index
+        for i in range(1, size):
+            left = (rank - i + size) % size
+            right = (rank + i) % size
+            
+            if dist.get_backend() == 'gloo':
+                qgroup_recv_left = torch.zeros(len(assign_bits), dtype=torch.long)
+            req = dist.isend(qgroup_size[right], dst=right) # ! send tensor must be on cpu
+            dist.recv(qgroup_recv_left, src=left)
+            qgroup_recv[left] = qgroup_recv_left
+            if dist.get_backend() == 'gloo':
+                group_size = torch.zeros(len(assign_bits), dtype=torch.long)
+            req.wait()
+            req = dist.isend(torch.tensor([boundary_group[right][k].shape[0] for k in range(len(assign_bits))]), dst=right)
+            dist.recv(group_size, src=left)
+            group_size_recv[left] = group_size
+            if dist.get_backend() == 'gloo':
+                shuffled_idx = torch.zeros(recv_shape[left], dtype=torch.long)
+                tmp = torch.cat(boundary_idx[right]).cpu()
+            req.wait()
+            req = dist.isend(tmp, dst=right)
+            dist.recv(shuffled_idx, src=left)
+            bdry_idx_recv[left] = shuffled_idx 
+            req.wait()
+        qgroup_size_recv_tot.append(qgroup_recv)
+        group_size_recv_tot.append(group_size_recv)
+        bdry_idx_recv_tot.append(bdry_idx_recv)
+        assign_bits.popleft()
+
+    return qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot
 
     
         

@@ -16,8 +16,7 @@ python main.py \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
-  --n-train 153431 \
-  --save_testacc
+  --n-train 153431 
   # --enable_pipeline 
 
 

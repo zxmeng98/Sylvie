@@ -8,6 +8,7 @@ from multiprocessing.pool import ThreadPool
 from sklearn.metrics import f1_score
 import pandas as pd
 from module.gin import *
+from collections import deque
 
 
 def calc_acc(logits, labels):
@@ -293,7 +294,6 @@ def get_send_size(boundary, prob):
 
 
 def run(graph, node_dict, gpb, args):
-    
     rank, size = dist.get_rank(), dist.get_world_size()
 
     torch.autograd.set_detect_anomaly(False)
@@ -335,18 +335,16 @@ def run(graph, node_dict, gpb, args):
 
     graph, one_hops = order_graph(part, graph, gpb, node_dict, pos)
     in_deg = node_dict['in_degree'] # 是按 local node ID顺序来的 
-    # if rank != 0:
-    #     pd_deg = pd.DataFrame({'idx': boundary[0].cpu(), 'deg': in_deg[boundary[0]].cpu()})
-    #     # pd_deg = pd.DataFrame(columns=['idx', 'deg'], data=[boundary[0], in_deg[boundary[0]]])
-    #     pd_deg.to_csv(f'./results/deg_{rank}.csv', index=False)
     graph, node_dict, boundary = move_train_first(graph, node_dict, boundary)
-    boundary_group, grad_boundary_idx = boundary_deg_group(boundary, node_dict)
+    
+    boundary_group_tot, boundary_group_idx_tot = boundary_imp_group(boundary, node_dict)
 
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
-    assign_bits = [1, 1]
-    qgroup_send_size, qgroup_buffer_size, group_recv_size, grad_bdry_idx_recv = get_recv_info_ada(boundary_group, grad_boundary_idx, layer_size[1], recv_shape, assign_bits)
+    # TODO: hidden_size according to models
+    start_bits = [1, 2, 4, 8]
+    qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot = get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, layer_size[1], recv_shape, start_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
     if args.model == 'appnp':
@@ -360,9 +358,10 @@ def run(graph, node_dict, gpb, args):
         ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     else:
-        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], qgroup_send_size, qgroup_buffer_size, group_recv_size,
-                           use_pp=args.use_pp, backend=args.backend, bits=assign_bits, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
-    ctx.dbuffer.set_selected(boundary_group, grad_bdry_idx_recv)
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
+                                start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
+                           use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+    ctx.dbuffer.set_selected(boundary_group_tot)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -419,11 +418,12 @@ def run(graph, node_dict, gpb, args):
     f_relative_err = []
     grad_abs_err = []
     grad_relative_err = []
+    compare_dq = deque([0, 0, 0, 0, 0]) # TODO: adjustable
+    min_bit, max_bit = 1, 8
+    base_bit = 1
+    
     for epoch in range(args.n_epochs):
-        # if epoch == 300:
-        #     ctx.buffer.change_epoch_bit()
-        # ctx.buffer.layer_pos = 7
-            
+        ctx.dbuffer.adjust_buffer()
         ctx.dbuffer.set_pipeline()
 
         t0 = time.time()
@@ -433,7 +433,6 @@ def run(graph, node_dict, gpb, args):
             logits = model(graph, feat, in_deg)
             # if rank == 0:
             #     print(model.abs_err[-1])
-            
             # Test degree - error
             # if rank == 0:
                
@@ -450,19 +449,7 @@ def run(graph, node_dict, gpb, args):
         optimizer.zero_grad(set_to_none=True)
         
         loss.backward()
-
-        # print(f'rank: {rank}, total: {ctx.pipe_buffer.commu_volume} MB')
-        # grad_abs_err.append(ctx.buffer2.grad_abs_err.item()/3)
-        # if rank == 0:
-        #     dict = {'epoch': epoch, 'feat abs err': ctx.buffer2.grad_abs_err.item()/3}
-        #     df = pd.DataFrame([dict])
-        #     err_file_csv = 'results/g_abs_err.csv'
-        #     if os.path.exists(err_file_csv):
-        #         df.to_csv(err_file_csv, mode='a', header=False, index=False)
-        #     else:
-        #         df.to_csv(err_file_csv, mode='a', index=False)
-        # grad_relative_err.append(ctx.buffer2.grad_rel_err.item()/3)
-        # ctx.buffer2.grad_abs_err = 0
+        
         ctx.dbuffer.next_epoch()
 
         pre_reduce = time.time()
@@ -536,7 +523,47 @@ def run(graph, node_dict, gpb, args):
                     df.to_csv(acc_file_csv, mode='a', header=False, index=False)
                 else: 
                     df.to_csv(acc_file_csv, mode='a', index=False)
-       
+        
+        # Epoch-adaptive part
+        old_base_bit = base_bit
+        if rank == 0:
+            if epoch == 0:
+                f_loss = loss.item() / part_train
+            else:
+                f_loss_old = f_loss
+                f_loss = 0.9 * f_loss + 0.1 * loss.item() / part_train
+                if epoch >= 5:
+                    v_loss = abs(f_loss - f_loss_old) / train_dur[-1]
+                    compare_dq.popleft()
+                    compare_dq.append(v_loss)
+                    if epoch >= 9:
+                        add_bit, reduce_bit = True, True
+                        for k in range(1, len(compare_dq)):
+                            if compare_dq[k] > compare_dq[k-1]:
+                                add_bit = False
+                                break
+                        for k in range(1, len(compare_dq)):
+                            if compare_dq[k] < compare_dq[k-1]:
+                                reduce_bit = False
+                                break
+                        if add_bit:
+                            if base_bit < max_bit:
+                                base_bit *= 2
+                        if reduce_bit:
+                            if base_bit > min_bit:
+                                base_bit = int(base_bit/2) 
+                                
+        # Notify other partitions on the bit             
+        if rank == 0:
+            for i in range(1, size):
+                req = dist.isend(torch.tensor(base_bit, dtype=torch.long), dst=i, tag=epoch) 
+                req.wait()
+        else:
+            bit_tmp = torch.tensor([0], dtype=torch.long)
+            dist.recv(bit_tmp, src=0, tag=epoch)
+            base_bit = bit_tmp.item()
+        # print(f'epoch: {epoch}, rank: {rank}, base_bit: {base_bit}')
+        
 
     # print(f'rank {rank}, f abs: {np.mean(f_abs_err)}, f rel: {np.mean(f_relative_err)}, grad abs: {np.mean(grad_abs_err)}, grad rel: {np.mean(grad_relative_err)}')
     # print_memory("memory stats")
@@ -547,9 +574,7 @@ def run(graph, node_dict, gpb, args):
         
     #     df_abs_err = pd.DataFrame({'err': abs_err.cpu()})
     #     df_abs_err.to_csv('./results/test.csv')
-    
-    
-    
+
     if args.eval and rank == 0:
         if thread is not None:
             if args.inductive:

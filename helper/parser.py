@@ -58,6 +58,8 @@ def create_parser():
                         help="disable evaluation")
     parser.add_argument('--datatype', type=str, default='fp32',
                         help="disable evaluation")
+    parser.add_argument("--base-bit", "--base_bit", type=int, default=1,
+                        help="disable evaluation")
     parser.add_argument("--enable-pipeline", "--enable_pipeline", action='store_true')
     parser.add_argument('--save_csv', action='store_true', help="whether to save time to csv")
     parser.add_argument("--feat-corr", "--feat_corr", action='store_true')
