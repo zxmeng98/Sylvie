@@ -298,7 +298,7 @@ class DegreeBuffer(object):
                     self._f_cpu_event[layer].wait()
                     torch.cuda.current_stream().wait_event(self._f_cuda_event[layer])
                     self._f_cpu_event[layer].clear()
-            self._f_buf[layer], commu_part = self.__feat_concat(layer, feat)
+            self._f_buf[layer] = self.__feat_concat(layer, feat)
             self._pool.apply_async(self.__feat_transfer, args=(self._epoch, layer, feat))
             if self._f_buf[layer].requires_grad:
                 self._f_buf[layer].register_hook(self.__grad_hook(self._epoch, layer))

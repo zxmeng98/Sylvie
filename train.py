@@ -343,7 +343,7 @@ def run(graph, node_dict, gpb, args):
     send_size, ratio = get_send_size(boundary, 1)
     
     # TODO: hidden_size according to models
-    start_bits = [1, 2, 4, 8]
+    start_bits = [1, 1, 1, 1]
     qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot = get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, layer_size[1], recv_shape, start_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
@@ -424,8 +424,8 @@ def run(graph, node_dict, gpb, args):
     
     for epoch in range(args.n_epochs):
         # print(f'epoch {epoch}, rank {rank}, bit: {base_bit}')
-        ctx.dbuffer.adjust_buffer(base_bit)
-        # ctx.dbuffer.curr_bits = start_bits
+        # ctx.dbuffer.adjust_buffer(base_bit)
+        ctx.dbuffer.curr_bits = start_bits
         ctx.dbuffer.set_pipeline()
 
         t0 = time.time()

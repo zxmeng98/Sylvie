@@ -16,8 +16,8 @@ python main.py \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
-  --n-train 153431 
-  # --enable_pipeline 
+  --n-train 153431 \
+  --enable_pipeline 
 
 
 # for FIX in 10 20 100
