@@ -1,23 +1,25 @@
 python main.py \
   --dataset reddit \
   --dropout 0.5 \
-  --lr 0.001 \
-  --weight_decay 0 \
+  --lr 0.01 \
+  --weight_decay 0.0005 \
   --n-partitions 4 \
-  --n-epochs 2000 \
-  --model graphsage \
-  --n-layers 4 \
+  --n-epochs 800 \
+  --model jknet \
+  --n-layers 8 \
   --n-hidden 128 \
   --log-every 10 \
   --inductive \
-  --datatype int1 \
+  --datatype adap \
   --use-pp \
   --fix-seed \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
   --n-train 153431 \
-  --enable_pipeline 
+  --save_csv \
+  --save_testacc 
+  # --enable_pipeline 
 
 
 # for FIX in 10 20 100

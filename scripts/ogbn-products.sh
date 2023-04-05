@@ -5,14 +5,16 @@ python main.py \
   --weight_decay 0.05 \
   --n-partitions 4 \
   --n-epochs 500 \
-  --model dagnn \
+  --model gat \
   --sampling-rate 1 \
   --n-layers 3 \
-  --n-hidden 128 \
+  --n-hidden 256 \
   --log-every 10 \
   --datatype fp32 \
   --use-pp \
   --k 10 \
   --fix-seed \
-  --save_testacc
+  --n-class 47 \
+  --n-feat 100 \
+  --n-train 196615 
 

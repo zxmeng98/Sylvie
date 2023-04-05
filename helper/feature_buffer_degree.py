@@ -244,11 +244,20 @@ class DegreeBuffer(object):
 
 
     def set_pipeline(self):
-        if self._fixed_synchro is not None:
-            if (self._epoch+1) % self._fixed_synchro == 0:
-                self._pipeline = False
-            else:
-                self._pipeline = True
+        # if self._fixed_synchro is not None:
+        #     if (self._epoch+1) % self._fixed_synchro == 0:
+        #         self._pipeline = False
+        #     else:
+        #         self._pipeline = True
+        self._pipeline = True
+        
+    def unset_pipeline(self):
+        # if self._fixed_synchro is not None:
+        #     if (self._epoch+1) % self._fixed_synchro == 0:
+        #         self._pipeline = False
+        #     else:
+        #         self._pipeline = True
+        self._pipeline = False
 
 
     def __feat_concat(self, layer, feat):

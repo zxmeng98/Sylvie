@@ -9,6 +9,7 @@ from sklearn.metrics import f1_score
 import pandas as pd
 from module.gin import *
 from collections import deque
+from functools import reduce
 
 
 def calc_acc(logits, labels):
@@ -245,8 +246,13 @@ def create_model(layer_size, args):
     )
 
 
-def reduce_hook(param, name, n_train):
+def reduce_hook(param, name, n_train, grad_size):
     def fn(grad):
+        # Count weight gradients size
+        gshape = grad.shape
+        gsize = reduce(lambda x, y: x * y, list(gshape))
+        grad_size[0] += gsize*4/(1024*1024)
+        
         ctx.reducer.reduce(param, name, grad, n_train)
     return fn
 
@@ -342,8 +348,8 @@ def run(graph, node_dict, gpb, args):
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
-    # TODO: hidden_size according to models
-    start_bits = [1, 1, 1, 1]
+    # Start bit group
+    start_bits = [1, 2, 4, 8]
     qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot = get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, layer_size[1], recv_shape, start_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
@@ -355,12 +361,17 @@ def run(graph, node_dict, gpb, args):
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     elif args.model == 'jknet':
         layer_size[-1] = args.n_hidden
-        ctx.buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    else:
-        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
+        # ctx.cvolume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
+        #                    use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size, 
                                 start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
                            use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+    else:
+        # ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
+        #                         start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
+        #                    use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+        ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     ctx.dbuffer.set_selected(boundary_group_tot)
 
     if args.use_pp:
@@ -379,9 +390,9 @@ def run(graph, node_dict, gpb, args):
     model.cuda()
 
     ctx.reducer.init(model)
-
+    grad_size = [0]
     for i, (name, param) in enumerate(model.named_parameters()):
-        param.register_hook(reduce_hook(param, name, args.n_train))
+        param.register_hook(reduce_hook(param, name, args.n_train, grad_size))
 
     best_model, best_acc = None, 0
 
@@ -419,14 +430,13 @@ def run(graph, node_dict, gpb, args):
     grad_abs_err = []
     grad_relative_err = []
     compare_dq = deque([0, 0, 0, 0, 0]) # TODO: adjustable
+    
     min_bit, max_bit = 1, 8
     base_bit = 1
     
     for epoch in range(args.n_epochs):
-        # print(f'epoch {epoch}, rank {rank}, bit: {base_bit}')
-        # ctx.dbuffer.adjust_buffer(base_bit)
-        ctx.dbuffer.curr_bits = start_bits
-        ctx.dbuffer.set_pipeline()
+        ctx.dbuffer.adjust_buffer(base_bit)
+        # ctx.dbuffer.curr_bits = start_bit
 
         t0 = time.time()
         model.train()
@@ -452,12 +462,16 @@ def run(graph, node_dict, gpb, args):
         
         loss.backward()
         
+        # print(epoch, rank, ctx.volume_buffer.commu_volume)
         ctx.dbuffer.next_epoch()
 
         pre_reduce = time.time()
         ctx.reducer.synchronize()
         reduce_time = time.time() - pre_reduce
         optimizer.step()
+        # if rank == 0:
+        #     print(epoch, grad_size)
+        # exit(0)
 
         if epoch >= 5 and epoch % args.log_every != 0:
             train_dur.append(time.time() - t0)
@@ -518,7 +532,7 @@ def run(graph, node_dict, gpb, args):
                 else:
                     # acc_file_csv = 'results/%s_n%d_%s_%s_%s_test.csv' % (args.dataset, args.n_partitions, args.model, args.datatype, args.enable_pipeline)
                     # acc_file_csv = 'results/%s_%s_1_p.csv' % (args.dataset, args.model)
-                    acc_file_csv = 'results/test.csv'
+                    acc_file_csv = 'results/testacc_curve_pcie4_v2/%s_n%d_%s_%s.csv' % (args.dataset, args.n_partitions, args.model, args.datatype)
                 dict = {'epoch': epoch, 'acc': acc, 'loss': loss.item() / part_train, 'epoch t': train_dur[-1]}
                 df = pd.DataFrame([dict])
                 if os.path.exists(acc_file_csv):
@@ -564,6 +578,11 @@ def run(graph, node_dict, gpb, args):
             bit_tmp = torch.tensor([0], dtype=torch.long)
             dist.recv(bit_tmp, src=0, tag=epoch)
             base_bit = bit_tmp.item()
+            
+        if base_bit > old_base_bit:
+            ctx.dbuffer.unset_pipeline()
+        elif base_bit < old_base_bit:
+            ctx.dbuffer.set_pipeline()
         # print(f'epoch: {epoch}, rank: {rank}, base_bit: {base_bit}')
         
 
@@ -605,11 +624,11 @@ def run(graph, node_dict, gpb, args):
             dict = {'dataset': args.dataset, 'model': [args.model, args.n_layers, args.n_hidden], 
                     'epoch': args.n_epochs, 'datatype': args.datatype, 'pipeline': args.enable_pipeline, 'fixed synchro': 'NA', 'rank': rank,
                     'epoch time':np.mean(train_dur), 'commu': np.mean(comm_dur), 'reduce': np.mean(reduce_dur),
-                    'compute': np.mean(train_dur) - np.mean(comm_dur) - np.mean(reduce_dur), 'accuracy': 'NA', 
+                    'compute': np.mean(train_dur) - np.mean(comm_dur) - np.mean(reduce_dur), 'accuracy': acc, 
                     'peak memory': torch.cuda.max_memory_allocated() / 1024 / 1024,
                     }
         df = pd.DataFrame([dict])
-        file_csv = 'results/speed_pcie4_v2/%s_n%d_2node.csv' % (args.dataset, args.n_partitions)
+        file_csv = 'results/speed_pcie4_v2/%s_n%d.csv' % (args.dataset, args.n_partitions)
         if os.path.exists(file_csv):
             df.to_csv(file_csv, mode='a', header=False)
         else:

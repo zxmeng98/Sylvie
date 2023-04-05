@@ -60,9 +60,8 @@ class GraphSAGE(GNNBase):
                     # bits=1
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                    
-                    # ctx.buffer.layer_pos = 3
-                    h = ctx.dbuffer.update(i, h)
+
+                    h = ctx.volume_buffer.update(i, h)
                     
                     # Test error-bit
                         # a = torch.sqrt(((commu_part32-commu_part)**2).sum(1))
@@ -71,18 +70,6 @@ class GraphSAGE(GNNBase):
                     # err_tmp = torch.sqrt(((commu_part32-commu_part1)**2).sum(1)) / torch.norm(commu_part32, dim=1, p=2)
                     # rel_err += err_tmp.mean()
                 
-                # If only communicate the last layer
-                # if self.training and (i == self.n_layers - self.n_linear - 1 or not self.use_pp):
-                #     h = ctx.buffer.update(i, h)
-                # elif self.training and (i < self.n_layers - self.n_linear - 1 or not self.use_pp) and i > 0:
-                #     h = ctx.buffer.fetchdata(i, h)               
-                
-                # If only communicate the second layer
-                # if self.training and (i == 1 or not self.use_pp):
-                #     h = ctx.buffer.update(i, h)
-                # elif self.training and (i > 1 or not self.use_pp):
-                #     h = ctx.buffer.fetchdata(i, h)             
-                    
                 h = self.dropout(h)
                 h = self.layers[i](g, h, in_deg)
                 # if rank == 0:
@@ -188,11 +175,11 @@ class GAT(GNNBase):
                         # bits=1
                         # output, scale, mn = ctx.quantize_and_pack(h, bits)
                         # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
-                        # h1 = ctx.buffer.update(i, h)
-                        if self.training and (i == 1 or not self.use_pp):
-                            h = ctx.buffer.update(i, h)
-                        elif self.training and (i > 1 or not self.use_pp):
-                            h = ctx.buffer.fetchdata(i, h) 
+                        h1 = ctx.volume_buffer.update(i, h)
+                        # if self.training and (i == 1 or not self.use_pp):
+                        #     h = ctx.buffer.update(i, h)
+                        # elif self.training and (i > 1 or not self.use_pp):
+                        #     h = ctx.buffer.fetchdata(i, h) 
                     else:
                         h1 = h
                         h = h[0:g.num_nodes('_V')]
@@ -237,7 +224,7 @@ class GCN(GNNBase):
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
                     # ctx.buffer.layer_pos = 4
-                    h, commu_part1 = ctx.buffer.update(i, h)
+                    h = ctx.volume_buffer.update(i, h)
                         
                     # h, commu_part32 = ctx.buffer.update(i, h)
                 # if self.training and (i == 1 or not self.use_pp):
@@ -504,12 +491,12 @@ class JKNet(nn.Module):
             layer_idx = 0
             for layer in self.layers:
                 if layer_idx > 0:
-                    feats, _ = ctx.buffer.update(layer_idx, feats)
+                    feats = ctx.dbuffer.update(layer_idx, feats)
                     feat_lst.append(feats)
                 feats = self.dropout(layer(g, feats))
                 layer_idx += 1
                 
-            feats, _ = ctx.buffer.update(layer_idx, feats)
+            feats = ctx.dbuffer.update(layer_idx, feats)
             feat_lst.append(feats)
             
             g.nodes['_U'].data['h'] = self.jump(feat_lst)

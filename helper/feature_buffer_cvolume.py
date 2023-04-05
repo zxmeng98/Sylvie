@@ -455,7 +455,7 @@ class CvolumeBuffer(object):
                     else:
                         data_part, scale, mn = quantize_and_pack(data[self._pl[i]:self._pr[i]], self.nbits)
                     cshape = data_part.shape
-                    self.commu_volume += cshape[0]/1000000
+                    self.commu_volume += cshape[0]/(1024*1024)
                     # cshape = scale.shape
                     # self.commu_volume += cshape[0]*2/1000000
                     # cshape = mn.shape
@@ -474,11 +474,11 @@ class CvolumeBuffer(object):
                 else:
                     if forward:
                         cshape = data[self._selected[i]].shape
-                        self.commu_volume += cshape[0]*cshape[1]*4/1000000
-                        # print(f'rank: {rank}, forward size: {cshape[0]*cshape[1]*4/1000000} MB, total: {self.commu_volume} MB')
+                        # self.commu_volume += cshape[0]*cshape[1]*4/(1024*1024) #MB
+                        # print(f'epoch: {self._epoch}, rank: {rank}, forward size: {cshape[0]*cshape[1]*4/1000000} MB, total: {self.commu_volume} MB')
                     else:
                         cshape = data[self._pl[i]:self._pr[i]].shape
-                        self.commu_volume += cshape[0]*cshape[1]*4/1000000
+                        self.commu_volume += cshape[0]*cshape[1]*4/(1024*1024)
                         # print(f'rank: {rank}, backward size: {cshape[0]*cshape[1]*4/1000000} MB, total: {self.commu_volume} MB')
                 
         return quant_data, data_scale, data_mn 
