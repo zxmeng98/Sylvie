@@ -491,12 +491,14 @@ class JKNet(nn.Module):
             layer_idx = 0
             for layer in self.layers:
                 if layer_idx > 0:
-                    feats = ctx.dbuffer.update(layer_idx, feats)
+                    # feats = ctx.dbuffer.update(layer_idx, feats)
+                    feats = ctx.volume_buffer.update(layer_idx, feats)
                     feat_lst.append(feats)
                 feats = self.dropout(layer(g, feats))
                 layer_idx += 1
                 
-            feats = ctx.dbuffer.update(layer_idx, feats)
+            # feats = ctx.dbuffer.update(layer_idx, feats)
+            feats = ctx.volume_buffer.update(layer_idx, feats)
             feat_lst.append(feats)
             
             g.nodes['_U'].data['h'] = self.jump(feat_lst)

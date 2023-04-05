@@ -10,16 +10,14 @@ python main.py \
   --n-hidden 128 \
   --log-every 10 \
   --inductive \
-  --datatype adap \
+  --datatype int2 \
   --use-pp \
   --fix-seed \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
   --n-train 153431 \
-  --save_csv \
-  --save_testacc 
-  # --enable_pipeline 
+  --enable_pipeline 
 
 
 # for FIX in 10 20 100

@@ -347,6 +347,13 @@ def boundary_imp_group(boundary, node_dict):
             
             boundary_4group[i] = [bdry_id1, bdry_id2, bdry_id3, bdry_id4]
             boundary_4group_idx[i] = [bdry_idx1, bdry_idx2, bdry_idx3, bdry_idx4]
+            # test
+            # if rank == 1:
+            #     a =[boundary_4group_idx[i][k].shape[0] for k in range(4)]
+            #     b = torch.tensor([boundary_4group[i][k].shape[0] for k in range(4)])
+            #     print(a)
+            #     print(b)
+            # exit(0)
             
             # Assigned bits = [2, 4, 8]
             bdry_id1 = torch.tensor(np.array(df_imp.loc[(df_imp['imp']>=0) & (df_imp['imp']<0.33)]['idx']), device=device)

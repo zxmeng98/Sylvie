@@ -349,7 +349,7 @@ def run(graph, node_dict, gpb, args):
     send_size, ratio = get_send_size(boundary, 1)
     
     # Start bit group
-    start_bits = [1, 2, 4, 8]
+    start_bits = [2, 2, 2, 2]
     qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot = get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, layer_size[1], recv_shape, start_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
@@ -361,18 +361,19 @@ def run(graph, node_dict, gpb, args):
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     elif args.model == 'jknet':
         layer_size[-1] = args.n_hidden
-        # ctx.cvolume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
-        #                    use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size, 
-                                start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
-                           use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+        ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
+                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+        # ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size, 
+        #                         start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
+        #                    use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
     else:
         # ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
         #                         start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
         #                    use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
         ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    ctx.dbuffer.set_selected(boundary_group_tot)
+    # ctx.dbuffer.set_selected(boundary_group_tot)
+    ctx.volume_buffer.set_selected(boundary)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -435,8 +436,8 @@ def run(graph, node_dict, gpb, args):
     base_bit = 1
     
     for epoch in range(args.n_epochs):
-        ctx.dbuffer.adjust_buffer(base_bit)
-        # ctx.dbuffer.curr_bits = start_bit
+        # ctx.dbuffer.adjust_buffer(base_bit)
+        # ctx.dbuffer.curr_bits = start_bits
 
         t0 = time.time()
         model.train()
@@ -463,7 +464,7 @@ def run(graph, node_dict, gpb, args):
         loss.backward()
         
         # print(epoch, rank, ctx.volume_buffer.commu_volume)
-        ctx.dbuffer.next_epoch()
+        ctx.volume_buffer.next_epoch()
 
         pre_reduce = time.time()
         ctx.reducer.synchronize()
@@ -579,10 +580,10 @@ def run(graph, node_dict, gpb, args):
             dist.recv(bit_tmp, src=0, tag=epoch)
             base_bit = bit_tmp.item()
             
-        if base_bit > old_base_bit:
-            ctx.dbuffer.unset_pipeline()
-        elif base_bit < old_base_bit:
-            ctx.dbuffer.set_pipeline()
+        # if base_bit > old_base_bit:
+        #     ctx.dbuffer.unset_pipeline()
+        # elif base_bit < old_base_bit:
+        #     ctx.dbuffer.set_pipeline()
         # print(f'epoch: {epoch}, rank: {rank}, base_bit: {base_bit}')
         
 
