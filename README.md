@@ -13,7 +13,7 @@
 `-- scripts      # example scripts
 ```
 
-Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are empty folders at the beginning and will be created when BNS-GCN is launched.
+Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are empty folders at the beginning and will be created when training is launched.
 
 ## Setup
 
@@ -21,8 +21,8 @@ Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are em
 
 #### Hardware Dependencies
 
-- A X86-CPU machine with at least 120 GB host memory 
-- At least five Nvidia GPUs (at least 11 GB each)
+- A CPU machine with at least 120 GB host memory 
+- At least five Nvidia GPUs (at least 24 GB each)
 
 #### Software Dependencies
 
@@ -37,29 +37,24 @@ Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are em
 
 #### Option 1: Run with Docker
 
-We have prepared a [Docker package](https://hub.docker.com/r/cheng1016/bns-gcn) for BNS-GCN.
+We have prepared a Docker image for Sylvie.
 
 ```bash
-docker pull cheng1016/bns-gcn
-docker run --gpus all -it cheng1016/bns-gcn
+docker pull zxmeng98/sylvie
+docker run --gpus all -it zxmeng98/sylvie
 ```
 
 #### Option 2: Install with Conda
 
-Running the following command will install DGL from source and other prerequisites from conda.
+Running the following command will install prerequisites from conda.
 
 ```bash
 bash setup.sh
 ```
 
-#### Option 3: Do it Yourself
-
-Please follow the official guides ([[1]](https://github.com/pytorch/pytorch), [[2]](https://ogb.stanford.edu/docs/home/)) to install PyTorch and OGB. For DGL, please follow the [official guide](https://docs.dgl.ai/install/index.html#install-from-source) to install our customized DGL **from source** (do NOT forget to adjust the first `git clone` command to clone [our customized repo](https://github.com/chwan-rice/dgl)).  We are contacting the DGL team to integrate our modification that supports minimizing communication volume for graph partition.
-
 ### Datasets
 
-We use Reddit, ogbn-products, Yelp and ogbn-papers100M for evaluating BNS-GCN. All datasets are supposed to be stored in `./dataset/` by default. Reddit, ogbn-products and ogbn-papers100M will be downloaded by DGL or OGB automatically. Yelp is preloaded in the Docker environment, and is available [here](https://drive.google.com/open?id=1zycmmDES39zVlbVCYs88JTJ1Wm5FbfLz) or [here](https://pan.baidu.com/s/1SOb0SiSAXavwAcNqkttwcg) (with passcode f1ao) if you choose to set up the enviromnent by yourself. 
-
+We use Reddit, ogbn-products, Yelp and Amazon for evaluations. All datasets are supposed to be stored in `./dataset/`. Reddit, ogbn-products and ogbn-papers100M will be downloaded by DGL or OGB automatically. Yelp is preloaded in the Docker environment, and is available [here](https://drive.google.com/open?id=1zycmmDES39zVlbVCYs88JTJ1Wm5FbfLz).
 
 
 ## Basic Usage
@@ -68,19 +63,18 @@ We use Reddit, ogbn-products, Yelp and ogbn-papers100M for evaluating BNS-GCN. A
 
 - `--dataset`: the dataset you want to use
 - `--model`: the GCN model (only GraphSAGE and GAT are supported at this moment)
-- `--lr`: learning rate
-- `--sampling-rate`: the sampling rate of BNS-GCN
-- `--n-epochs`: the number of training epochs
-- `--n-partitions`: the number of partitions
 - `--n-hidden`: the number of hidden units
 - `--n-layers`: the number of GCN layers
-- `--partition-method`: the method for graph partition ('metis' or 'random')
+- `--n-partitions`: the number of partitions
+- `--master-addr`: the address of master server
 - `--port`: the network port for communication
-- `--no-eval`: disable evaluation process
 
-### Run Example Scripts
+<!-- ### Reproduce experiments
 
-Simply running `scripts/reddit.sh`, `scripts/ogbn-products.sh` and `scripts/yelp.sh` can reproduce BNS-GCN under the default settings. For example, after running `bash scripts/reddit.sh`, you will get the output like this
+Run `scripts/reddit.sh`, `scripts/ogbn-products.sh` and `scripts/yelp.sh` can reproduce Sylvie under the default settings. 
+
+
+For example, after running `bash scripts/reddit.sh`, you will get the output like this
 
 ```
 ...
@@ -92,13 +86,13 @@ Epoch 02999 | Accuracy 96.55%
 model saved
 Max Validation Accuracy 96.68%
 Test Result | Accuracy 97.21%
-```
+``` -->
 
-### Run Full Experiments
+### Run Experiments
 
-If you want to reproduce core experiments of our paper (e.g., accuracy in Table 4, throughput in Figure 4, time breakdown in Figure 5, peak memory in Figure 6), please run `scripts/reddit_full.sh`,  `scripts/ogbn-products_full.sh` or  `scripts/yelp_full.sh`, and the outputs will be saved to `./results/` directory. Note that the throughput of these experiments will be significantly slower than the results in our paper because the training is performed along with validation.
+To reproduce experiments of our paper (e.g., throughput and accuracy in Table 4 and 5), please run `scripts/reddit.sh`,  `scripts/ogbn-products.sh` or  `scripts/yelp.sh`, and the outputs will be saved to `./results/` directory.
 
-### Run Customized Settings
+<!-- ### Run Customized Settings
 
 You may adjust `--n-partitions` and `--sampling-rate` to reproduce the results of BNS-GCN under other settings. To verify the exact throughput or time breakdown of BNS-GCN, please add `--no-eval` argument to skip the evaluation step. You may also use the argument `--partition-method=random` to explore the performance of BNS-GCN with random partition.
 
@@ -106,6 +100,6 @@ You may adjust `--n-partitions` and `--sampling-rate` to reproduce the results o
 
 Our code base also supports distributed GCN training with multiple compute nodes. To achieve this, you should specify `--master-addr`, `--node-rank` and `--parts-per-node` for each compute node. An example is provided in `scripts/reddit_multi_node.sh` where we train the Reddit graph over 4 compute nodes, each of which contains 10 GPUs, with 40 partitions in total. You should run the command on each node and specify the corresponding node rank. **Please turn on `--fix-seed` argument** so that all nodes initialize the same model weights.
 
-If the compute nodes do not share storage, you should partition the graph in a single device first and manually distribute the partitions to other compute nodes. When run the training script, please enable `--skip-partition` argument.
+If the compute nodes do not share storage, you should partition the graph in a single device first and manually distribute the partitions to other compute nodes. When run the training script, please enable `--skip-partition` argument. -->
 
 
