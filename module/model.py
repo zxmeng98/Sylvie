@@ -61,7 +61,7 @@ class GraphSAGE(GNNBase):
                     # output, scale, mn = ctx.quantize_and_pack(h, bits)
                     # h = ctx.dequantize_and_unpack(output, bits, h.shape, scale, mn)
 
-                    h = ctx.volume_buffer.update(i, h)
+                    h = ctx.dbuffer.update(i, h)
                     
                     # Test error-bit
                         # a = torch.sqrt(((commu_part32-commu_part)**2).sum(1))

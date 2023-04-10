@@ -23,18 +23,17 @@
 
 python main.py \
   --dataset yelp \
-  --dropout 0.8 \
+  --dropout 0.1 \
   --lr 0.01 \
-  --weight_decay 0.005 \
+  --weight_decay 0 \
   --n-partitions 4 \
-  --n-epochs 600 \
-  --model dagnn \
+  --n-epochs 2000 \
+  --model gcn \
   --n-layers 4 \
   --n-linear 2 \
-  --n-hidden 64 \
+  --n-hidden 512 \
   --log-every 10 \
   --inductive \
   --datatype fp32 \
   --use-pp \
-  --k 16 \
-  --save_testacc
+  --k 16 

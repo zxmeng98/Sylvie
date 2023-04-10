@@ -343,13 +343,14 @@ def run(graph, node_dict, gpb, args):
     in_deg = node_dict['in_degree'] # 是按 local node ID顺序来的 
     graph, node_dict, boundary = move_train_first(graph, node_dict, boundary)
     
+    t0 = time.time()
     boundary_group_tot, boundary_group_idx_tot = boundary_imp_group(boundary, node_dict)
 
     recv_shape = get_recv_shape(node_dict)
     send_size, ratio = get_send_size(boundary, 1)
     
     # Start bit group
-    start_bits = [2, 2, 2, 2]
+    start_bits = [1, 2, 4, 8]
     qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot = get_recv_buffer_info(boundary_group_tot, boundary_group_idx_tot, layer_size[1], recv_shape, start_bits)
 
     # '_U'包含boundary nodes, '_V'只有inner nodes
@@ -361,19 +362,19 @@ def run(graph, node_dict, gpb, args):
                            use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
     elif args.model == 'jknet':
         layer_size[-1] = args.n_hidden
-        ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-        # ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size, 
-        #                         start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
-        #                    use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+        # ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
+        #                    use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size, 
+                                start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
+                           use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
     else:
-        # ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
-        #                         start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
-        #                    use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
-        ctx.volume_buffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size,
-                           use_pp=args.use_pp, backend=args.backend, dtype=args.datatype, pipeline=args.enable_pipeline, corr_feat=args.feat_corr, corr_grad=args.grad_corr, corr_momentum=args.corr_momentum, fixed_synchro=args.fixed_synchro)
-    # ctx.dbuffer.set_selected(boundary_group_tot)
-    ctx.volume_buffer.set_selected(boundary)
+        ctx.dbuffer.init_buffer(num_in, graph.num_nodes('_U'), send_size, recv_shape, layer_size[:args.n_layers - args.n_linear], 
+                                start_bits, qgroup_size_send_tot, qgroup_size_recv_tot, group_size_recv_tot, bdry_idx_recv_tot,
+                           use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
+    ctx.dbuffer.set_selected(boundary_group_tot)
+    # ctx.volume_buffer.set_selected(boundary)
+    print(f'rank {rank}, offline stage: {time.time()-t0}s')
+    exit(0)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -408,7 +409,7 @@ def run(graph, node_dict, gpb, args):
 
     train_dur, comm_dur, reduce_dur, extra_dur = [], [], [], []
     quant_dur, dequant_dur = [], []
-    fdequant_dur = []
+    fdequant_dur, assign_dur = [], []
 
     torch.cuda.reset_peak_memory_stats()
     thread = None
@@ -436,7 +437,7 @@ def run(graph, node_dict, gpb, args):
     base_bit = 1
     
     for epoch in range(args.n_epochs):
-        # ctx.dbuffer.adjust_buffer(base_bit)
+        ctx.dbuffer.adjust_buffer(base_bit)
         # ctx.dbuffer.curr_bits = start_bits
 
         t0 = time.time()
@@ -464,7 +465,8 @@ def run(graph, node_dict, gpb, args):
         loss.backward()
         
         # print(epoch, rank, ctx.volume_buffer.commu_volume)
-        ctx.volume_buffer.next_epoch()
+        # ctx.volume_buffer.next_epoch()
+        ctx.dbuffer.next_epoch()
 
         pre_reduce = time.time()
         ctx.reducer.synchronize()
@@ -541,7 +543,8 @@ def run(graph, node_dict, gpb, args):
                 else: 
                     df.to_csv(acc_file_csv, mode='a', index=False)
         
-        # Epoch-adaptive part
+        t0 = time.time()
+        # Epoch-adaptive part: assign bit-widths
         old_base_bit = base_bit
         if rank == 0:
             if epoch == 0:
@@ -580,11 +583,14 @@ def run(graph, node_dict, gpb, args):
             dist.recv(bit_tmp, src=0, tag=epoch)
             base_bit = bit_tmp.item()
             
-        # if base_bit > old_base_bit:
-        #     ctx.dbuffer.unset_pipeline()
-        # elif base_bit < old_base_bit:
-        #     ctx.dbuffer.set_pipeline()
+        if base_bit > old_base_bit:
+            ctx.dbuffer.unset_pipeline()
+        elif base_bit < old_base_bit:
+            ctx.dbuffer.set_pipeline()
         # print(f'epoch: {epoch}, rank: {rank}, base_bit: {base_bit}')
+        assign_dur.append(time.time() - t0)
+        if (epoch + 1) % 10 == 0 and rank == 0:
+            print(f'online assign time: {np.mean(assign_dur)}')
         
 
     # print(f'rank {rank}, f abs: {np.mean(f_abs_err)}, f rel: {np.mean(f_relative_err)}, grad abs: {np.mean(grad_abs_err)}, grad rel: {np.mean(grad_relative_err)}')

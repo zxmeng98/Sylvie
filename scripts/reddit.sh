@@ -2,7 +2,7 @@ python main.py \
   --dataset reddit \
   --dropout 0.5 \
   --lr 0.01 \
-  --weight_decay 0.0005 \
+  --weight_decay 0 \
   --n-partitions 4 \
   --n-epochs 800 \
   --model jknet \
@@ -10,14 +10,16 @@ python main.py \
   --n-hidden 128 \
   --log-every 10 \
   --inductive \
-  --datatype int2 \
+  --datatype adap \
   --use-pp \
   --fix-seed \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
-  --n-train 153431 \
-  --enable_pipeline 
+  --n-train 153431 
+  # --save_csv \
+  # --save_testacc
+ 
 
 
 # for FIX in 10 20 100
