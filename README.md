@@ -61,7 +61,7 @@ We use Reddit, ogbn-products, Yelp and Amazon for evaluations. All datasets are 
 ### Core Training Options
 
 - `--dataset`: the dataset you want to use
-- `--model`: the GCN model (only GraphSAGE and GAT are supported at this moment)
+- `--model`: the model to use
 - `--n-hidden`: the number of hidden units
 - `--n-layers`: the number of GCN layers
 - `--n-partitions`: the number of partitions
