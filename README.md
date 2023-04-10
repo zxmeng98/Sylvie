@@ -6,11 +6,10 @@
 |-- checkpoint   # model checkpoints
 |-- dataset
 |-- helper       # auxiliary codes
-|   `-- timer
 |-- module       # PyTorch modules
 |-- partitions   # partitions of input graphs
 |-- results      # experiment outputs
-`-- scripts      # example scripts
+|-- scripts      # example scripts
 ```
 
 Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are empty folders at the beginning and will be created when training is launched.
@@ -35,7 +34,7 @@ Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are em
 
 ### Installation
 
-#### Option 1: Run with Docker
+#### Run with Docker
 
 We have prepared a Docker image for Sylvie.
 
@@ -43,14 +42,14 @@ We have prepared a Docker image for Sylvie.
 docker pull zxmeng98/sylvie
 docker run --gpus all -it zxmeng98/sylvie
 ```
-
+<!-- 
 #### Option 2: Install with Conda
 
 Running the following command will install prerequisites from conda.
 
 ```bash
 bash setup.sh
-```
+``` -->
 
 ### Datasets
 
@@ -90,7 +89,7 @@ Test Result | Accuracy 97.21%
 
 ### Run Experiments
 
-To reproduce experiments of our paper (e.g., throughput and accuracy in Table 4 and 5), please run `scripts/reddit.sh`,  `scripts/ogbn-products.sh` or  `scripts/yelp.sh`, and the outputs will be saved to `./results/` directory.
+To reproduce experiments of our paper (e.g., throughput and accuracy in Table 4 and 5), please run `scripts/reddit.sh`,  `scripts/ogbn-products.sh` or  `scripts/yelp.sh`. Users can adjust the options to reproduce results of other settings. The outputs will be saved to `./results/` directory.
 
 <!-- ### Run Customized Settings
 
