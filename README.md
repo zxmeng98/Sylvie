@@ -1,4 +1,4 @@
-# BNS-GCN: Efficient Full-Graph Training of Graph Convolutional Networks with Partition-Parallelism and Random Boundary Node Sampling
+# Sylvie: 3D-adaptive System for Large-scale GNN Training
 
 ## Directory Structure
 
@@ -26,12 +26,12 @@ Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are em
 
 #### Software Dependencies
 
-- Ubuntu 18.04
-- Python 3.8
-- CUDA 11.1
-- [PyTorch 1.8.0](https://github.com/pytorch/pytorch)
-- [customized DGL 0.8.0](https://github.com/chwan-rice/dgl)
-- [OGB 1.3.2](https://ogb.stanford.edu/docs/home/)
+- Ubuntu 20.04
+- Python 3.9
+- CUDA 11.7
+- [PyTorch 1.10](https://github.com/pytorch/pytorch)
+- [customized DGL 0.9.0](https://github.com/dmlc/dgl/tree/0.9.x)
+- [OGB 1.3.4](https://ogb.stanford.edu/docs/home/)
 
 ### Installation
 
