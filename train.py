@@ -373,8 +373,8 @@ def run(graph, node_dict, gpb, args):
                            use_pp=args.use_pp, backend=args.backend, pipeline=args.enable_pipeline, fixed_synchro=args.fixed_synchro)
     ctx.dbuffer.set_selected(boundary_group_tot)
     # ctx.volume_buffer.set_selected(boundary)
-    print(f'rank {rank}, offline stage: {time.time()-t0}s')
-    exit(0)
+    # print(f'rank {rank}, offline stage: {time.time()-t0}s')
+    # exit(0)
 
     if args.use_pp:
         node_dict['feat'] = precompute(graph, node_dict, boundary, recv_shape, args)
@@ -588,9 +588,9 @@ def run(graph, node_dict, gpb, args):
         elif base_bit < old_base_bit:
             ctx.dbuffer.set_pipeline()
         # print(f'epoch: {epoch}, rank: {rank}, base_bit: {base_bit}')
-        assign_dur.append(time.time() - t0)
-        if (epoch + 1) % 10 == 0 and rank == 0:
-            print(f'online assign time: {np.mean(assign_dur)}')
+        # assign_dur.append(time.time() - t0)
+        # if (epoch + 1) % 10 == 0 and rank == 0:
+        #     print(f'online assign time: {np.mean(assign_dur)}')
         
 
     # print(f'rank {rank}, f abs: {np.mean(f_abs_err)}, f rel: {np.mean(f_relative_err)}, grad abs: {np.mean(grad_abs_err)}, grad rel: {np.mean(grad_relative_err)}')

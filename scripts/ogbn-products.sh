@@ -12,7 +12,6 @@ python main.py \
   --log-every 10 \
   --datatype fp32 \
   --use-pp \
-  --k 10 \
   --fix-seed \
   --n-class 47 \
   --n-feat 100 \

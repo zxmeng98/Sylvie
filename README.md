@@ -36,7 +36,7 @@ Note that `./checkpoint/`, `./dataset/`, `./partitions/` and `./results/` are em
 
 #### Run with Docker
 
-We have prepared a Docker image for Sylvie.
+We have prepared a Docker image(comming soon) for Sylvie.
 
 ```bash
 docker pull zxmeng98/sylvie
@@ -68,24 +68,22 @@ We use Reddit, ogbn-products, Yelp and Amazon for evaluations. All datasets are 
 - `--master-addr`: the address of master server
 - `--port`: the network port for communication
 
-<!-- ### Reproduce experiments
+<!-- ### Reproduce experiments -->
 
-Run `scripts/reddit.sh`, `scripts/ogbn-products.sh` and `scripts/yelp.sh` can reproduce Sylvie under the default settings. 
+<!-- Run `scripts/reddit.sh`, `scripts/ogbn-products.sh` and `scripts/yelp.sh` can reproduce Sylvie under the default settings.  -->
 
 
 For example, after running `bash scripts/reddit.sh`, you will get the output like this
 
 ```
 ...
-Process 000 | Epoch 02999 | Time(s) 0.3578 | Comm(s) 0.2267 | Reduce(s) 0.0108 | Loss 0.0716
-Process 001 | Epoch 02999 | Time(s) 0.3600 | Comm(s) 0.2314 | Reduce(s) 0.0136 | Loss 0.0867
-(rank 1) memory stats: current 562.96MB, peak 1997.89MB, reserved 2320.00MB
-(rank 0) memory stats: current 557.01MB, peak 2087.31MB, reserved 2296.00MB
-Epoch 02999 | Accuracy 96.55%
-model saved
-Max Validation Accuracy 96.68%
-Test Result | Accuracy 97.21%
-``` -->
+Process 002 | Epoch 00079 | Time(s) 0.7814 | Comm(s) 0.6886 | Reduce(s) 0.0415 | Loss 0.2291
+Process 003 | Epoch 00079 | Time(s) 0.7816 | Comm(s) 0.6784 | Reduce(s) 0.0433 | Loss 0.3579
+Process 000 | Epoch 00079 | Time(s) 0.7804 | Comm(s) 0.6784 | Reduce(s) 0.0422 | Loss 0.2293
+Process 001 | Epoch 00079 | Time(s) 0.7816 | Comm(s) 0.6878 | Reduce(s) 0.0411 | Loss 0.0932
+Epoch 00079 | Accuracy 93.31%
+...
+```
 
 ### Run Experiments
 

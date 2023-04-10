@@ -16,7 +16,8 @@ python main.py \
   --skip-partition \
   --n-class 41 \
   --n-feat 602 \
-  --n-train 153431 
+  --n-train 153431 \
+  --no-eval
   # --save_csv \
   # --save_testacc
  

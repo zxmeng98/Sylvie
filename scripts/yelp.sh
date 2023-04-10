@@ -35,5 +35,4 @@ python main.py \
   --log-every 10 \
   --inductive \
   --datatype fp32 \
-  --use-pp \
-  --k 16 
+  --use-pp 
