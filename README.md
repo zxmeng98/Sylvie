@@ -63,7 +63,7 @@ We use Reddit, ogbn-products, Yelp and Amazon for evaluations. All datasets are 
 - `--dataset`: the dataset you want to use
 - `--model`: the model to use
 - `--n-hidden`: the number of hidden units
-- `--n-layers`: the number of GCN layers
+- `--n-layers`: the number of model layers
 - `--n-partitions`: the number of partitions
 - `--master-addr`: the address of master server
 - `--port`: the network port for communication
