@@ -1,4 +1,4 @@
-# Sylvie: Making Full-Graph Training System Practical for Universal GNNs
+# Sylvie: 3D-adaptive and Universal System for Large-scale Graph Neural Network Training
 
 ## Directory Structure
 
